@@ -1,7 +1,9 @@
 import {execFile, ChildProcess} from 'child_process';
 import {isAbsolute, join} from 'path';
 import {homedir} from 'os';
-import {existsSync} from 'fs';
+import {existsSync,promises as fs} from 'fs';
+import {tmpdir} from 'os';
+import {extname} from 'path';
 import {Settings, parseMessages} from './core';
 
 export const LIMIT = 10000;
@@ -41,6 +43,7 @@ export function argumentsFor(store: string, after: string, limit: number): strin
   return ['--store',store,'--read-only','--json','messages','list','--after',after,'--limit',String(limit)];
 }
 export function logoutArguments(store:string):string[]{return ['--store',store,'--json','auth','logout'];}
+export function mediaArguments(store:string,chat:string,id:string,output:string):string[]{return ['--store',store,'--read-only','--json','media','download','--chat',chat,'--id',id,'--output',output];}
 export class WacliClient {
   private child: ChildProcess | null = null;
   cancel(): void { this.child?.kill(); }
@@ -54,6 +57,22 @@ export class WacliClient {
         else resolve();
       });
     });
+  }
+  async downloadAudio(s:Settings,chat:string,id:string,maxBytes:number):Promise<{data:ArrayBuffer;extension:string}>{
+    const bin=executable(s),store=storePath(s);const dir=await fs.mkdtemp(join(tmpdir(),'whatsapp-bridge-audio-'));
+    try{
+      await new Promise<void>((resolve,reject)=>{
+        this.child=execFile(bin,mediaArguments(store,chat,id,dir),{shell:false,windowsHide:true,timeout:120000,maxBuffer:1024*1024,env:{...process.env,WACLI_READONLY:'1'}},error=>{
+          this.child=null;error?reject(new Error('Could not download this audio from WhatsApp.')):resolve();
+        });
+      });
+      const entries=await fs.readdir(dir,{withFileTypes:true});
+      if(entries.length!==1||!entries[0].isFile()||entries[0].isSymbolicLink())throw new Error('wacli returned an unexpected audio package.');
+      const file=join(dir,entries[0].name),stat=await fs.stat(file);
+      if(stat.size<1||stat.size>maxBytes)throw new Error('Audio exceeds the configured size limit.');
+      const bytes=await fs.readFile(file);const view=bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength);
+      return{data:view,extension:extname(entries[0].name)||'.bin'};
+    }finally{await fs.rm(dir,{recursive:true,force:true}).catch(()=>{});}
   }
   async read(s: Settings, after: string, limit=LIMIT) {
     const bin = executable(s), store = storePath(s);

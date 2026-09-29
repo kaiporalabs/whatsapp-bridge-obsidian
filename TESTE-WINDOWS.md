@@ -1,4 +1,4 @@
-# WhatsApp Bridge 0.3.1 — instalação e teste
+# WhatsApp Bridge 0.4.0 — instalação e teste
 
 Esta versão permite instalar o conector e parear pelo Obsidian. Não é necessário abrir terminal no fluxo normal. Comece em um vault de teste.
 
@@ -22,6 +22,16 @@ O plugin segue o idioma configurado no Obsidian: português é traduzido e qualq
 Se houver um `wacli` 0.19.0 no PATH, o plugin o detecta e utiliza automaticamente. Outras versões não são aceitas como compatíveis e o instalador gerenciado continua disponível.
 
 O botão **Desconectar e apagar credenciais** pede confirmação, encerra o coletor, revoga o dispositivo vinculado e remove as credenciais da sessão local. As notas já importadas e o banco local de mensagens são preservados.
+
+## Teste opcional de áudio
+
+1. Confirme que **Baixar mensagens de áudio** inicia desligado após a atualização.
+2. Ative a opção e mantenha a transcrição desligada no primeiro teste.
+3. Receba um áudio recente e use **Importar agora**.
+4. Verifique o player na nota da conversa, o arquivo em `Media/Audio` e a entrada em `Audio Index.md` com conversa, remetente e horário.
+5. Execute a importação novamente e confirme que nem o arquivo nem a entrada são duplicados.
+
+Para testar transcrição, use Obsidian 1.11.4 ou mais recente, selecione uma chave da API OpenAI pelo SecretStorage e ative **Transcrever áudios baixados**. O áudio será enviado à OpenAI. Não use conversas privadas no primeiro teste.
 
 Depois do primeiro pareamento, ative **Iniciar coletor ao abrir Obsidian** se desejar. Em aberturas posteriores, também é possível clicar **Iniciar**, sem escanear novamente. **Parar** encerra a coleta deste plugin e preserva o vínculo. A importação consulta o que já está na base, mesmo com coletor parado.
 

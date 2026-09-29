@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.0
+
+- Adiciona download opt-in de mensagens de áudio pelo wacli em modo somente leitura.
+- Incorpora os áudios nas notas das conversas usando o player do Obsidian.
+- Mantém `Audio Index.md` por conta, com conversa, chat ID, remetente, horário, arquivo e estado de processamento.
+- Adiciona transcrição opt-in com OpenAI, chave no SecretStorage do Obsidian e idioma configurável.
+- Mantém download e transcrição desativados durante atualizações e instalações novas.
+
 ## 0.3.1
 
 - Adiciona logout com confirmação, revogação do dispositivo vinculado e remoção das credenciais locais.

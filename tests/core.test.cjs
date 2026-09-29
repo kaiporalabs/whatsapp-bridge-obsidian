@@ -1,7 +1,8 @@
 const {test}=require('node:test');
 const assert=require('node:assert/strict');
 const {defaults,parseMessages,mergeNote,notePath,messageKey,folderPath,validate,upgradeSettings}=require('../.test-build/core.cjs');
-const {argumentsFor,logoutArguments,executable}=require('../.test-build/client.cjs');
+const {argumentsFor,logoutArguments,mediaArguments,executable}=require('../.test-build/client.cjs');
+const {audioIndexPath,audioKey,deterministicAudioPath,findIndexedAudio,hasTranscript,indexedTranscript,mergeAudioIntoNote,updateAudioIndex}=require('../.test-build/audio.cjs');
 const {language,messages}=require('../.test-build/i18n.cjs');
 const raw={ChatJID:'123@g.us',ChatName:'Equipe',MsgID:'abc',Timestamp:'2026-09-29T10:00:00Z',FromMe:false,SenderName:'Ana',Text:'Olá'};
 const parse=(r=raw)=>parseMessages(JSON.stringify({success:true,data:{messages:[r]}}));
@@ -67,4 +68,21 @@ test('verified PATH command remains executable after detection',()=>{
 test('logout uses the selected store without read-only or shell syntax',()=>{
   const path='C:\\Account data';const args=logoutArguments(path);
   assert.deepEqual(args,['--store',path,'--json','auth','logout']);assert.ok(!args.includes('--read-only'));
+});
+test('audio download command is read-only and keeps identifiers as literal arguments',()=>{
+  const args=mediaArguments('C:\\Store','chat & value','id;value','C:\\Output');
+  assert.ok(args.includes('--read-only'));assert.equal(args[args.indexOf('--chat')+1],'chat & value');assert.equal(args[args.indexOf('--id')+1],'id;value');
+});
+test('audio index retains conversation, sender, timestamp and stable file mapping',()=>{
+  const m={...parse()[0],mediaType:'audio'},key=audioKey(defaults,m),path=deterministicAudioPath(defaults,m,'.ogg');
+  const record={key,chat:m.chat,chatName:m.name,sender:m.sender,timestamp:m.timestamp,note:notePath(defaults,m),path,status:'transcribed',transcript:'Reunião amanhã.',error:''};
+  const first=updateAudioIndex('',record),second=updateAudioIndex(first,{...record,transcript:'Texto corrigido.'});
+  assert.equal((second.match(new RegExp(key,'g'))||[]).length,2);assert.match(second,/Conversation:/);assert.match(second,/Sender: Ana/);assert.match(second,/Sent: 2026/);
+  assert.equal(findIndexedAudio(second,key),path);assert.equal(hasTranscript(second,key),true);assert.match(audioIndexPath(defaults),/Audio Index\.md$/);
+  assert.equal(indexedTranscript(second,key),'Texto corrigido.');
+});
+test('audio embed and transcript update an existing message idempotently',()=>{
+  const m={...parse()[0],mediaType:'audio'},base=mergeNote('',[m],defaults).content,path=deterministicAudioPath(defaults,m,'.ogg');
+  const once=mergeAudioIntoNote(base,defaults,m,path,'Olá'),twice=mergeAudioIntoNote(once,defaults,m,path,'Olá');
+  assert.equal(twice,once);assert.match(once,/!\[\[/);assert.match(once,/Transcript/);
 });

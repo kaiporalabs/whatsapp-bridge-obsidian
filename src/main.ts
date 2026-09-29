@@ -1,4 +1,4 @@
-import {Plugin, PluginSettingTab, Setting, Notice, TFile, TFolder, App, Modal, requestUrl, getLanguage} from 'obsidian';
+import {Plugin, PluginSettingTab, Setting, Notice, TFile, TFolder, App, Modal, SecretComponent, requestUrl, getLanguage, requireApiVersion} from 'obsidian';
 import {defaults, Settings, Message, validate, notePath, mergeNote, upgradeSettings} from './core';
 import {WacliClient, storeDirectory, findCompatibleExecutable} from './client';
 import {Collector} from './collector';
@@ -7,6 +7,7 @@ import {toDataURL} from 'qrcode';
 import {existsSync} from 'fs';
 import {join} from 'path';
 import {messages} from './i18n';
+import {audioIndexPath,audioKey,deterministicAudioPath,findIndexedAudio,hasTranscript,indexedTranscript,isAudio,mergeAudioIntoNote,transcribe,updateAudioIndex,AudioRecord} from './audio';
 
 export default class WhatsAppBridge extends Plugin {
   settings: Settings = {...defaults};
@@ -92,6 +93,48 @@ export default class WhatsAppBridge extends Plugin {
       if(!found) { try { await this.app.vault.createFolder(current); } catch(e) { if(!(this.app.vault.getAbstractFileByPath(current) instanceof TFolder))throw e; } }
     }
   }
+  private async processAudios(rows:Message[],s:Settings){
+    if(!s.downloadAudio)return{downloaded:0,transcribed:0,failed:0};
+    const indexPath=audioIndexPath(s);const indexFile=this.app.vault.getAbstractFileByPath(indexPath);
+    if(indexFile&&!(indexFile instanceof TFile))throw new Error('Audio index path is occupied by a folder.');
+    let index=indexFile instanceof TFile?await this.app.vault.read(indexFile):'';
+    let downloaded=0,transcribed=0,failed=0,changed=false;
+    for(const m of rows.filter(m=>isAudio(m)&&!m.chat.includes('broadcast')&&!m.chat.endsWith('@newsletter')&&(m.chat.endsWith('@g.us')?s.groups:s.personal))){
+      if(this.stopped)break;
+      const key=audioKey(s,m),note=notePath(s,m),alreadyTranscribed=hasTranscript(index,key);
+      let path=findIndexedAudio(index,key),data:ArrayBuffer|null=null,extension='',downloadedNow=false,transcriptText='';
+      let status:AudioRecord['status']='downloaded',error='';
+      try{
+        const existing=path?this.app.vault.getAbstractFileByPath(path):null;
+        if(existing instanceof TFile){if(s.transcribeAudio&&!alreadyTranscribed)data=await this.app.vault.readBinary(existing);}
+        else{
+          const result=await this.client.downloadAudio(s,m.chat,m.id,s.audioMaxMB*1024*1024);data=result.data;extension=result.extension;
+          path=deterministicAudioPath(s,m,extension);await this.folders(path);
+          const occupied=this.app.vault.getAbstractFileByPath(path);
+          if(!occupied)await this.app.vault.createBinary(path,data);else if(!(occupied instanceof TFile))throw new Error('Audio destination is occupied by a folder.');
+          downloaded++;downloadedNow=true;
+        }
+        if(alreadyTranscribed){transcriptText=indexedTranscript(index,key);status='transcribed';}
+        else if(s.transcribeAudio){
+          const secret=this.app.secretStorage?.getSecret(s.openaiSecret)??'';
+          if(!data){const file=this.app.vault.getAbstractFileByPath(path);if(file instanceof TFile)data=await this.app.vault.readBinary(file);}
+          if(!data)throw new Error('Downloaded audio could not be read.');
+          transcriptText=await transcribe(data,path.split('/').pop()??'audio.ogg',secret,s.transcriptionModel,s.transcriptionLanguage);
+          status='transcribed';transcribed++;
+        }
+      }catch(e){
+        failed++;error=e instanceof Error?e.message:'Audio processing failed.';status=path?'transcription_failed':'download_failed';
+      }
+      const record:AudioRecord={key,chat:m.chat,chatName:m.name,sender:m.fromMe?s.ownName:m.sender,timestamp:m.timestamp,note,path,status,transcript:transcriptText,error};
+      index=updateAudioIndex(index,record);changed=true;
+      if(path&&(downloadedNow||transcriptText)){
+        const noteFile=this.app.vault.getAbstractFileByPath(note);
+        if(noteFile instanceof TFile)await this.app.vault.process(noteFile,content=>mergeAudioIntoNote(content,s,m,path,transcriptText));
+      }
+    }
+    if(changed){await this.folders(indexPath);if(indexFile instanceof TFile)await this.app.vault.process(indexFile,()=>index);else await this.app.vault.create(indexPath,index);}
+    return{downloaded,transcribed,failed};
+  }
   async run(test: boolean) {
     if(this.installing) { new Notice(this.text('Wait for the wacli installation to finish.','Aguarde a instalação do wacli.'));return; }
     if(this.busy) { new Notice(this.text('An operation is already running.','Já existe uma operação em andamento.')); return; }
@@ -127,7 +170,9 @@ export default class WhatsAppBridge extends Plugin {
           added+=count; if(count)files++;
           this.status.setText(`WA Bridge · ${added} novas`);
         }
-        this.lastResult=this.text(`${added} message(s) added to ${files} note(s). ${new Date().toLocaleString()}`,`${added} mensagem(ns) adicionada(s) em ${files} nota(s). ${new Date().toLocaleString()}`);
+        const audio=await this.processAudios(rows,s);
+        const audioSummary=s.downloadAudio?this.text(` Audio: ${audio.downloaded} downloaded, ${audio.transcribed} transcribed, ${audio.failed} failed.`,` Áudio: ${audio.downloaded} baixado(s), ${audio.transcribed} transcrito(s), ${audio.failed} falha(s).`):'';
+        this.lastResult=this.text(`${added} message(s) added to ${files} note(s).${audioSummary} ${new Date().toLocaleString()}`,`${added} mensagem(ns) adicionada(s) em ${files} nota(s).${audioSummary} ${new Date().toLocaleString()}`);
       }
       this.status.setText('WA Bridge · OK');
       new Notice(this.lastResult,8000);
@@ -156,7 +201,7 @@ class BridgeSettings extends PluginSettingTab {
       try {const promise=fn();this.display();await promise;}catch(e){new Notice(e instanceof Error?e.message:'Falha na operação.');}
       finally {if(this.visible)this.display();}
     };
-    c.createEl('h2',{text:'WhatsApp Bridge · 0.3.1'});
+    c.createEl('h2',{text:'WhatsApp Bridge · 0.4.0'});
     c.createEl('p',{text:t.intro,cls:'whatsapp-bridge-help'});
     new Setting(c).setName(t.install).setDesc(t.installDesc(WACLI_VERSION))
       .addButton(b=>b.setButtonText(p.installing?t.downloading:s.executable?t.reinstall:t.download).setDisabled(locked).onClick(act(()=>p.downloadWacli())));
@@ -189,6 +234,22 @@ class BridgeSettings extends PluginSettingTab {
       .addText(input=>input.setValue(s.personalFolder).onChange(async v=>{s.personalFolder=v;await p.save();}));
     new Setting(c).setName(t.interval).setDesc(t.intervalDesc)
       .addText(t=>t.setValue(String(s.interval)).onChange(async v=>{s.interval=Number(v);await p.save();p.restartTimer();}));
+    c.createEl('h3',{text:t.audio});
+    new Setting(c).setName(t.downloadAudio).setDesc(t.downloadAudioDesc)
+      .addToggle(input=>input.setValue(s.downloadAudio).onChange(async v=>{s.downloadAudio=v;if(!v)s.transcribeAudio=false;await p.save();this.display();}));
+    new Setting(c).setName(t.audioFolder).setDesc(t.audioFolderDesc)
+      .addText(input=>input.setValue(s.audioFolder).setDisabled(!s.downloadAudio).onChange(async v=>{s.audioFolder=v;await p.save();}));
+    const secretsAvailable=requireApiVersion('1.11.4');
+    new Setting(c).setName(t.transcribeAudio).setDesc(t.transcribeAudioDesc)
+      .addToggle(input=>input.setValue(s.transcribeAudio).setDisabled(!s.downloadAudio||!secretsAvailable).onChange(async v=>{s.transcribeAudio=v;await p.save();this.display();}));
+    const secretSetting=new Setting(c).setName(t.openaiSecret).setDesc(t.openaiSecretDesc);
+    if(secretsAvailable)secretSetting.addComponent(el=>new SecretComponent(this.app,el).setValue(s.openaiSecret).onChange(async v=>{s.openaiSecret=v??'';await p.save();}));
+    secretSetting.setDisabled(!s.downloadAudio||!s.transcribeAudio||!secretsAvailable);
+    new Setting(c).setName(t.transcriptionLanguage).setDesc(t.transcriptionLanguageDesc)
+      .addDropdown(input=>input.addOption('auto','Auto').addOption('pt','Português').addOption('en','English').setValue(s.transcriptionLanguage).setDisabled(!s.downloadAudio||!s.transcribeAudio).onChange(async v=>{s.transcriptionLanguage=v;await p.save();}));
+    new Setting(c).setName(t.audioMax).setDesc(t.audioMaxDesc)
+      .addText(input=>input.setValue(String(s.audioMaxMB)).setDisabled(!s.downloadAudio).onChange(async v=>{s.audioMaxMB=Number(v);await p.save();}));
+    c.createEl('p',{text:t.audioPrivacy,cls:'whatsapp-bridge-help'});
     new Setting(c).setName(t.importing).setDesc(p.lastResult)
       .addButton(b=>b.setButtonText(t.importNow).setCta().onClick(act(()=>p.run(false))))
       .addButton(b=>b.setButtonText(t.test).onClick(act(()=>p.run(true))));

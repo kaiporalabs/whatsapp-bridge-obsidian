@@ -5,11 +5,15 @@ export interface Settings {
   groupFolder: string; personalFolder: string;
   days: number; interval: number; groups: boolean; personal: boolean; ownName: string;
   autoCollect: boolean;
+  downloadAudio: boolean; audioFolder: string; transcribeAudio: boolean;
+  openaiSecret: string; transcriptionModel: string; transcriptionLanguage: string; audioMaxMB: number;
 }
 export const defaults: Settings = {
   executable: '', store: '', source: 'principal', folder: 'WhatsApp',
   groupFolder: 'Grupos', personalFolder: 'Pessoais',
-  days: 7, interval: 1, groups: true, personal: true, ownName: 'Me', autoCollect:false
+  days: 7, interval: 1, groups: true, personal: true, ownName: 'Me', autoCollect:false,
+  downloadAudio:false,audioFolder:'Media/Audio',transcribeAudio:false,openaiSecret:'',
+  transcriptionModel:'gpt-4o-mini-transcribe',transcriptionLanguage:'auto',audioMaxMB:25
 };
 export function upgradeSettings(previous:Partial<Settings>|null|undefined,portuguese=false):Settings{
   const result={...defaults,...(previous??{})};
@@ -23,7 +27,7 @@ export function upgradeSettings(previous:Partial<Settings>|null|undefined,portug
 }
 export interface Message {
   chat: string; name: string; id: string; sender: string; timestamp: string;
-  fromMe: boolean; text: string;
+  fromMe: boolean; text: string; mediaType:string;
 }
 const hash = (s: string) => createHash('sha256').update(s).digest('hex');
 export function folderPath(value: string): string {
@@ -37,9 +41,11 @@ export function validate(s: Settings): void {
   folderPath(s.folder);
   folderPath(s.groupFolder);
   folderPath(s.personalFolder);
+  folderPath(s.audioFolder);
   if (!/^[a-zA-Z0-9_-]{1,40}$/.test(s.source)) throw new Error('Identificador da conta: use 1–40 letras, números, hífen ou sublinhado.');
   if (!Number.isInteger(s.days) || s.days < 1 || s.days > 3650) throw new Error('Histórico: informe 1–3650 dias.');
   if (!Number.isInteger(s.interval) || s.interval < 0 || s.interval > 1440) throw new Error('Intervalo: informe 0–1440 minutos.');
+  if (!Number.isInteger(s.audioMaxMB) || s.audioMaxMB < 1 || s.audioMaxMB > 100) throw new Error('Áudio: informe um limite entre 1 e 100 MB.');
 }
 function object(v: unknown): Record<string, unknown> {
   if (!v || typeof v !== 'object' || Array.isArray(v)) throw new Error('Formato JSON do wacli incompatível.');
@@ -69,7 +75,7 @@ export function parseMessages(json: string): Message[] {
     const text = typeof r.DisplayText === 'string' && r.DisplayText ? r.DisplayText : typeof r.Text === 'string' ? r.Text : '';
     return {chat:r.ChatJID as string, name:typeof r.ChatName === 'string' && r.ChatName ? r.ChatName : r.ChatJID as string,
       id:r.MsgID as string, sender:typeof r.SenderName === 'string' && r.SenderName ? r.SenderName : typeof r.SenderJID === 'string' ? r.SenderJID : 'Desconhecido',
-      timestamp:new Date(r.Timestamp as string).toISOString(), fromMe:r.FromMe,
+      timestamp:new Date(r.Timestamp as string).toISOString(), fromMe:r.FromMe,mediaType:typeof r.MediaType==='string'?r.MediaType.toLowerCase():'',
       text:text || (typeof r.MediaType === 'string' && r.MediaType ? `[Mídia: ${r.MediaType}]` : '[Mensagem sem texto]')};
   });
 }

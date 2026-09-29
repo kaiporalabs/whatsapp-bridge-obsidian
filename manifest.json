@@ -1,0 +1,9 @@
+{
+  "id": "whatsapp-bridge",
+  "name": "WhatsApp Bridge",
+  "version": "0.3.1",
+  "minAppVersion": "1.7.2",
+  "description": "Import messages from your local wacli store into conversation notes.",
+  "author": "Marcelo",
+  "isDesktopOnly": true
+}

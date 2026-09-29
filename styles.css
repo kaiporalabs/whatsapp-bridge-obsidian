@@ -1,0 +1,3 @@
+.whatsapp-bridge-help { color: var(--text-muted); }
+.whatsapp-bridge-qr { text-align: center; margin: 16px 0; }
+.whatsapp-bridge-qr img { max-width: 100%; height: auto; }

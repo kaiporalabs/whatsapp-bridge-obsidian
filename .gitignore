@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.test-build/
+data.json
+*.db*
+*.sqlite*
+.DS_Store

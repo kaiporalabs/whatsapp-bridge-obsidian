@@ -1,0 +1,102 @@
+const {test}=require('node:test');
+const assert=require('node:assert/strict');
+const {EventEmitter}=require('node:events');
+const {PassThrough}=require('node:stream');
+const {mkdtempSync,rmSync}=require('node:fs');
+const {tmpdir}=require('node:os');
+const {join}=require('node:path');
+const {gzipSync}=require('node:zlib');
+const {createHash}=require('node:crypto');
+const {zipSync}=require('fflate');
+const cp=require('node:child_process');
+const {release,verifyArchive,extractBinary}=require('../.test-build/installer.cjs');
+const {findCompatibleExecutable}=require('../.test-build/client.cjs');
+const {Collector,EventLines,collectorArgs}=require('../.test-build/collector.cjs');
+const {defaults}=require('../.test-build/core.cjs');
+test('selects pinned release for Windows x64 and Mac architectures',()=>{
+  assert.equal(release('win32','x64').filename,'wacli_0.19.0_windows_amd64.zip');
+  assert.match(release('darwin','arm64').filename,/arm64.tar.gz$/);
+  assert.match(release('darwin','x64').filename,/amd64.tar.gz$/);
+  assert.throws(()=>release('win32','arm64'));
+});
+test('PATH detection accepts only the pinned compatible wacli version',async()=>{
+  const calls=[];
+  const compatible=(file,args,options,done)=>{calls.push(file);done(file.includes('homebrew')?null:Error('missing'),file.includes('homebrew')?'wacli version 0.19.0':'','');};
+  const found=await findCompatibleExecutable(compatible);
+  if(process.platform==='darwin')assert.equal(found,'/opt/homebrew/bin/wacli');
+  else assert.equal(found,null);
+  const old=(file,args,options,done)=>done(null,'wacli version 0.18.0','');
+  assert.equal(await findCompatibleExecutable(old),null);
+});
+test('checksum mismatch refuses archive',()=>{
+  const b=Buffer.from('fixture'),sha=createHash('sha256').update(b).digest('hex');
+  verifyArchive(b,sha);assert.throws(()=>verifyArchive(Buffer.from('changed'),sha));
+});
+test('ZIP extracts only root executable, not traversal paths',()=>{
+  const bytes=Uint8Array.from([77,90,1]);
+  const zip=zipSync({'wacli.exe':bytes,'../../bad.exe':bytes});
+  assert.deepEqual(extractBinary(zip,'wacli.exe',true),bytes);
+  assert.throws(()=>extractBinary(zipSync({'../../wacli.exe':bytes}),'wacli.exe',true));
+});
+test('TAR extracts regular file and rejects symlink',()=>{
+  const tar=Buffer.alloc(1536);tar.write('wacli');tar.write('00000000003\0',124);tar[156]=48;tar.write('abc',512);
+  assert.equal(Buffer.from(extractBinary(gzipSync(tar),'wacli',false)).toString(),'abc');
+  tar[156]=50;assert.throws(()=>extractBinary(gzipSync(tar),'wacli',false));
+});
+test('NDJSON handles fragmented events and ignores ordinary stderr',()=>{
+  const parser=new EventLines(),events=[];
+  parser.push('log line\n{"event":"qr_',(...a)=>events.push(a));
+  parser.push('code","data":{"code":"secret"}}\n',(...a)=>events.push(a));
+  assert.deepEqual(events,[['qr_code',{code:'secret'}]]);
+  assert.throws(()=>parser.push('x'.repeat(130*1024),()=>{}));
+});
+test('collector command contains no shell and no send operation',()=>{
+  const args=collectorArgs('auth','C:\\Path with spaces');
+  assert.equal(args[1],'C:\\Path with spaces');assert.ok(args.includes('--events'));assert.ok(args.includes('--follow'));assert.ok(!args.includes('--json'));
+});
+test('collector owns one child, clears QR on connect, stops it and handles revocation',()=>{
+  const old=cp.spawn,dir=mkdtempSync(join(tmpdir(),'wa-collector-test-'));let child,launch;
+  cp.spawn=(bin,args,options)=>{launch={bin,args,options};child=new EventEmitter();child.stderr=new PassThrough();child.kill=()=>true;return child;};
+  const c=new Collector();
+  try {
+    c.start({...defaults,store:dir},'auth');
+    assert.equal(launch.options.shell,false);assert.equal(launch.options.windowsHide,true);
+    assert.throws(()=>c.start({...defaults,store:dir},'sync'));
+    child.stderr.write('{"event":"qr_code","data":{"code":"private-token"}}\n');
+    assert.equal(c.state.qr,'private-token');
+    child.stderr.write('{"event":"connected"}\n');assert.equal(c.state.qr,'');assert.equal(c.state.connected,true);
+    child.stderr.write('{"event":"logged_out"}\n');child.emit('close',0);
+    assert.equal(c.state.running,false);assert.match(c.state.status,/revogado/);
+    assert.ok(!c.state.status.includes('private-token'));
+  } finally {c.dispose();cp.spawn=old;rmSync(dir,{recursive:true,force:true});}
+});
+test('collector status follows the selected locale',()=>{
+  assert.equal(new Collector('en').state.status,'Collector stopped');
+  assert.equal(new Collector('pt').state.status,'Coletor parado');
+});
+test('spawn error is sanitized and child state resets on close',()=>{
+  const old=cp.spawn,dir=mkdtempSync(join(tmpdir(),'wa-collector-test-'));let child;
+  cp.spawn=()=>{child=new EventEmitter();child.stderr=new PassThrough();child.kill=()=>true;return child;};
+  const c=new Collector();
+  try {
+    c.start({...defaults,store:dir},'sync');child.emit('error',Error('secret path'));child.emit('close',-2);
+    assert.equal(c.state.running,false);assert.ok(!c.state.status.includes('secret'));
+  }finally{c.dispose();cp.spawn=old;rmSync(dir,{recursive:true,force:true});}
+});
+test('QR renderer generates a local PNG',async()=>{
+  const data=await require('qrcode').toDataURL('synthetic-pairing-payload',{width:320,margin:4});
+  assert.ok(data.startsWith('data:image/png;base64,'));
+  assert.equal(Buffer.from(data.split(',')[1],'base64').subarray(1,4).toString(),'PNG');
+});
+test('stop cancels auth, clears QR and prevents premature second child',()=>{
+  const old=cp.spawn,dir=mkdtempSync(join(tmpdir(),'wa-collector-test-'));let child,kills=[];
+  cp.spawn=()=>{child=new EventEmitter();child.stderr=new PassThrough();child.kill=s=>{kills.push(s);return true;};return child;};
+  const c=new Collector();
+  try {
+    c.start({...defaults,store:dir},'auth');child.stderr.write('{"event":"qr_code","data":{"code":"secret"}}\n');
+    c.stop();assert.equal(c.state.qr,'');assert.deepEqual(kills,['SIGTERM']);
+    assert.throws(()=>c.start({...defaults,store:dir},'auth'));
+    child.emit('close',0);assert.equal(c.state.running,false);
+    c.start({...defaults,store:dir},'sync');c.dispose();assert.deepEqual(kills,['SIGTERM','SIGTERM']);child.emit('close',0);
+  }finally{c.dispose();cp.spawn=old;rmSync(dir,{recursive:true,force:true});}
+});

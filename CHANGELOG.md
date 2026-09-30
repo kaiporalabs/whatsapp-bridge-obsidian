@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.4
+
+- Accepts quoted paths copied from Windows Explorer and saves the normalized executable path.
+- Adds a Browse button for selecting the extracted wacli executable; rejects other filenames and archives.
+- Handles file drops before the input's default handler, supports text path drops, and shows validation progress.
+
 ## 0.4.3
 
 - Requires Obsidian 1.13.1 to match the APIs used by settings and SecretStorage.

@@ -1,6 +1,6 @@
 # WhatsApp Bridge
 
-An independent Obsidian desktop plugin, currently in beta **0.4.3**. Imports messages and optional audio attachments from the local **wacli** store into Markdown notes. It does not use the protected Microsoft Store databases or depend on the WhatsApp Local Sync plugin.
+An independent Obsidian desktop plugin, currently in beta **0.4.4**. Imports messages and optional audio attachments from the local **wacli** store into Markdown notes. It does not use the protected Microsoft Store databases or depend on the WhatsApp Local Sync plugin.
 
 ## Requirements
 
@@ -19,7 +19,7 @@ See [TESTE-WINDOWS.md](TESTE-WINDOWS.md) for the Windows installation and testin
 1. Open the plugin settings and select **Set up connector**.
 2. In the popup, open the official [wacli 0.19.0 release page](https://github.com/openclaw/wacli/releases/tag/v0.19.0). Download the archive indicated for your platform and save it in **Downloads**.
 3. Extract the archive. On Windows, right-click it and select **Extract All**.
-4. Drag the extracted `wacli.exe` (Windows) or `wacli` (macOS/Linux) executable into the popup. You can also paste its full path.
+4. Click **Browse…** and select the extracted `wacli.exe` (Windows) or `wacli` (macOS/Linux) executable. You can also drag the file into the popup or paste its full path, including paths copied with quotes from Windows Explorer.
 5. Select **Validate and use executable**. The popup stays open during the download and displays the validation result.
 6. Close the popup and select **Show QR code**. On your phone, open WhatsApp → **Linked devices** → **Link a device**, then scan the code.
 

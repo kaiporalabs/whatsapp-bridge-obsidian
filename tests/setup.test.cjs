@@ -16,7 +16,7 @@ const {defaults}=require('../.test-build/core.cjs');
 const Module=require('node:module');
 const load=Module._load;
 Module._load=function(name,...args){return name==='obsidian'?{Modal:class{}}:load.call(this,name,...args);};
-const {checkExecutable,assetName}=require('../.test-build/connector.cjs');
+const {checkExecutable,assetName,normalizeExecutablePath,validExecutablePath,selectedFilePath}=require('../.test-build/connector.cjs');
 Module._load=load;
 test('external connector rejects archives and incompatible versions without changing the file',async()=>{
   const fs=require('node:fs');const dir=mkdtempSync(join(tmpdir(),'wa-external-test-'));
@@ -24,10 +24,21 @@ test('external connector rejects archives and incompatible versions without chan
   let calls=0;const run=(bin,args,options,done)=>{calls++;assert.equal(bin,path);assert.deepEqual(args,['--version']);assert.equal(options.shell,false);done(null,'wacli 0.19.0','');};
   try{
     await assert.rejects(checkExecutable(path+'.zip',run));assert.equal(calls,0);
-    await checkExecutable(path,run);assert.equal(calls,1);assert.equal(fs.readFileSync(path,'utf8'),'fixture');
+    assert.equal(await checkExecutable('"'+path+'"',run),path);assert.equal(calls,1);assert.equal(fs.readFileSync(path,'utf8'),'fixture');
     await assert.rejects(checkExecutable(path,(bin,args,options,done)=>done(null,'wacli 0.20.0','')));
     assert.equal(assetName('win32','x64'),'wacli_0.19.0_windows_amd64.zip');assert.equal(assetName('win32','arm64'),'');
   }finally{rmSync(dir,{recursive:true,force:true});}
+});
+test('Windows copied paths normalize quotes without accepting arguments or other executables',()=>{
+  const path='C:\\Users\\Ana Silva\\Downloads\\wacli.exe';
+  assert.equal(normalizeExecutablePath('  "'+path+'"  '),path);
+  assert.ok(validExecutablePath('"'+path+'"','win32'));
+  assert.ok(validExecutablePath('C:\\Downloads\\WACLI.EXE','win32'));
+  assert.ok(validExecutablePath('\\\\server\\share\\wacli.exe','win32'));
+  for(const value of ['wacli.exe',path+'.zip',path+'"','"'+path+'" --help','C:\\other.exe'])assert.equal(validExecutablePath(value,'win32'),false,value);
+});
+test('picker and dropped file legacy paths use the same normalization',async()=>{
+  assert.equal(await selectedFilePath({name:'wacli.exe',path:'"C:\\Downloads\\wacli.exe"'}),'C:\\Downloads\\wacli.exe');
 });
 
 test('PATH detection accepts only the pinned compatible wacli version',async()=>{

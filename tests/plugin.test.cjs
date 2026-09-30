@@ -1,3 +1,4 @@
+global.window={setTimeout,clearTimeout};
 const {test}=require('node:test');
 const assert=require('node:assert/strict');
 const Module=require('node:module');

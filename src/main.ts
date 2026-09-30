@@ -7,6 +7,7 @@ import {toDataURL} from 'qrcode';
 import {existsSync} from 'fs';
 import {join} from 'path';
 import {messages} from './i18n';
+import type {SettingDefinitionItem} from 'obsidian';
 import {audioIndexPath,audioKey,deterministicAudioPath,findIndexedAudio,hasTranscript,indexedTranscript,isAudio,mergeAudioIntoNote,transcribe,updateAudioIndex,AudioRecord} from './audio';
 
 export default class WhatsAppBridge extends Plugin {
@@ -179,6 +180,17 @@ export default class WhatsAppBridge extends Plugin {
   }
 }
 class BridgeSettings extends PluginSettingTab {
+  getSettingDefinitions():SettingDefinitionItem[]{
+    const t=messages(getLanguage()),p=this.plugin;
+    const text=(key:'folder'|'groupFolder'|'personalFolder'|'audioFolder'|'ownName',name:string,desc:string):SettingDefinitionItem=>({name,desc,render:row=>{row.addText(input=>input.setValue(p.settings[key]).onChange(async value=>{p.settings[key]=value;await p.save();}));}});
+    const toggle=(key:'groups'|'personal'|'autoCollect'|'downloadAudio',name:string):SettingDefinitionItem=>({name,render:row=>{row.addToggle(input=>input.setValue(p.settings[key]).onChange(async value=>{p.settings[key]=value;if(key==='downloadAudio'&&!value)p.settings.transcribeAudio=false;await p.save();}));}});
+    return [text('folder',t.destination,t.destinationDesc),text('groupFolder',t.groupFolder,t.groupFolderDesc),text('personalFolder',t.personalFolder,t.personalFolderDesc),text('audioFolder',t.audioFolder,t.audioFolderDesc),text('ownName',t.ownName,t.ownNameDesc),toggle('groups',t.groups),toggle('personal',t.personal),toggle('autoCollect',t.auto),toggle('downloadAudio',t.downloadAudio),
+      {name:t.interval,desc:t.intervalDesc,render:row=>{row.addText(input=>input.setValue(String(p.settings.interval)).onChange(async value=>{const n=Number(value);if(!Number.isInteger(n)||n<0||n>1440)return;p.settings.interval=n;await p.save();p.restartTimer();}));}},
+      {name:t.transcribeAudio,desc:t.transcribeAudioDesc,render:row=>{row.addToggle(input=>input.setValue(p.settings.transcribeAudio).setDisabled(!p.settings.downloadAudio||!requireApiVersion('1.11.4')).onChange(async value=>{p.settings.transcribeAudio=value;await p.save();}));}},
+      {name:t.openaiSecret,desc:t.openaiSecretDesc,render:row=>{if(requireApiVersion('1.11.4'))row.addComponent(el=>new SecretComponent(this.app,el).setValue(p.settings.openaiSecret).onChange(async value=>{p.settings.openaiSecret=value??'';await p.save();}));}},
+      {name:t.executable,desc:t.executableDesc,render:row=>{row.addButton(b=>b.setButtonText('Configure wacli').setDisabled(p.busyState||p.collector.state.running).onClick(()=>p.configureConnector(()=>{})));}}
+    ];
+  }
   private unsubscribe: (()=>void)|null=null;
   private visible=false;
   private renderId=0;
@@ -195,7 +207,7 @@ class BridgeSettings extends PluginSettingTab {
       try {const promise=fn();this.display();await promise;}catch(e){new Notice(e instanceof Error?e.message:'Falha na operação.');}
       finally {if(this.visible)this.display();}
     };
-    c.createEl('h2',{text:`WhatsApp Bridge · ${p.manifest.version}`});
+    new Setting(c).setName(`WhatsApp Bridge · ${p.manifest.version}`).setHeading();
     c.createEl('p',{text:t.intro,cls:'whatsapp-bridge-help'});
     new Setting(c).setName(getLanguage().startsWith('pt')?'1. Configurar wacli':'1. Configure wacli')
       .setDesc(getLanguage().startsWith('pt')?'Baixe pelo navegador e selecione o executável. O arquivo permanece onde você o salvou.':'Download in your browser and select the executable. The file stays where you saved it.')
@@ -229,7 +241,7 @@ class BridgeSettings extends PluginSettingTab {
       .addText(input=>input.setValue(s.personalFolder).onChange(async v=>{s.personalFolder=v;await p.save();}));
     new Setting(c).setName(t.interval).setDesc(t.intervalDesc)
       .addText(t=>t.setValue(String(s.interval)).onChange(async v=>{s.interval=Number(v);await p.save();p.restartTimer();}));
-    c.createEl('h3',{text:t.audio});
+    new Setting(c).setName(t.audio).setHeading();
     new Setting(c).setName(t.downloadAudio).setDesc(t.downloadAudioDesc)
       .addToggle(input=>input.setValue(s.downloadAudio).onChange(async v=>{s.downloadAudio=v;if(!v)s.transcribeAudio=false;await p.save();this.display();}));
     new Setting(c).setName(t.audioFolder).setDesc(t.audioFolderDesc)

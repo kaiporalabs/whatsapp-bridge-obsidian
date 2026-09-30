@@ -32,7 +32,7 @@ export interface Message {
 const hash = (s: string) => createHash('sha256').update(s).digest('hex');
 export function folderPath(value: string): string {
   const parts = value.trim().replace(/\\/g, '/').split('/');
-  if (!parts.length || parts.some(p => !p || p === '.' || p === '..' || p.startsWith('.') || /[<>:"|?*\x00-\x1f]/.test(p) || /[. ]$/.test(p) || /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(p))) {
+  if (!parts.length || parts.some(p => !p || p === '.' || p === '..' || p.startsWith('.') || /[<>:"|?*]/.test(p) || Array.from(p).some(c=>c.charCodeAt(0)<32) || /[. ]$/.test(p) || /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(p))) {
     throw new Error('Use uma pasta relativa ao vault, sem segmentos vazios, ocultos ou reservados.');
   }
   return parts.join('/');
@@ -86,7 +86,7 @@ export function notePath(s: Settings, m: Message): string {
 }
 // Source text is rendered literally, so messages cannot manufacture dedup markers or embeds.
 export function escapeText(s: string): string {
-  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/([\\`*_{}\[\]()#!|~])/g,'\\$1').replace(/\r\n?/g,'\n');
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/([\\`*_{}[\]()#!|~])/g,'\\$1').replace(/\r\n?/g,'\n');
 }
 export function mergeNote(existing: string, messages: Message[], s: Settings): {content:string; added:number} {
   const seen = new Set(Array.from(existing.matchAll(/^<!-- wa-bridge:([a-f0-9]{64}) -->$/gm),m=>m[1]));

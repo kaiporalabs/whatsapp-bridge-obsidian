@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.2
+
+- Regenerates the npm lockfile from a clean environment, including cross-platform optional dependencies.
+- Uses Obsidian settings headings, searchable setting definitions, and requestUrl for multipart transcription requests.
+- Uses window timers, replaces the Electron require call with a dynamic import, and cleans up regular expressions and unused imports.
+
+
 ## 0.4.1
 
 - Substitui instalação automática por download externo guiado e seleção do executável, sem mover ou instalar arquivos.

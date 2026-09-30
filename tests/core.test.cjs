@@ -2,10 +2,30 @@ const {test}=require('node:test');
 const assert=require('node:assert/strict');
 const {defaults,parseMessages,mergeNote,notePath,messageKey,folderPath,validate,upgradeSettings}=require('../.test-build/core.cjs');
 const {argumentsFor,logoutArguments,mediaArguments,executable}=require('../.test-build/client.cjs');
-const {audioIndexPath,audioKey,deterministicAudioPath,findIndexedAudio,hasTranscript,indexedTranscript,mergeAudioIntoNote,updateAudioIndex}=require('../.test-build/audio.cjs');
+const Module=require('node:module');const original=Module._load;
+Module._load=function(name,...args){return name==='obsidian'?{requestUrl:()=>{throw Error('Unexpected request');}}:original.call(this,name,...args);};
+const {transcribe,audioIndexPath,audioKey,deterministicAudioPath,findIndexedAudio,hasTranscript,indexedTranscript,mergeAudioIntoNote,updateAudioIndex}=require('../.test-build/audio.cjs');
+Module._load=original;
 const {language,messages}=require('../.test-build/i18n.cjs');
 const raw={ChatJID:'123@g.us',ChatName:'Equipe',MsgID:'abc',Timestamp:'2026-09-29T10:00:00Z',FromMe:false,SenderName:'Ana',Text:'Olá'};
 const parse=(r=raw)=>parseMessages(JSON.stringify({success:true,data:{messages:[r]}}));
+test('transcription sends binary multipart through requestUrl and handles HTTP errors',async()=>{
+  const bytes=Uint8Array.from([0,1,128,255]).buffer;
+  const request=async options=>{
+    assert.equal(options.url,'https://api.openai.com/v1/audio/transcriptions');
+    assert.equal(options.headers.Authorization,'Bearer synthetic-key');
+    assert.equal(options.throw,false);
+    const body=await new Response(options.body,{headers:{'Content-Type':options.headers['Content-Type']}}).formData();
+    assert.equal(body.get('model'),'gpt-4o-mini-transcribe');assert.equal(body.get('language'),'pt');
+    assert.deepEqual(new Uint8Array(await body.get('file').arrayBuffer()),new Uint8Array(bytes));
+    return{status:200,json:{text:'  example  '}};
+  };
+  assert.equal(await transcribe(bytes,'voice.ogg','synthetic-key','gpt-4o-mini-transcribe','pt',request),'example');
+  await assert.rejects(transcribe(bytes,'voice.ogg','synthetic-key','model','auto',async()=>({status:429})),/HTTP 429/);
+});
+test('path validation rejects every ASCII control character',()=>{
+  for(let code=0;code<32;code++)assert.throws(()=>folderPath('folder/'+String.fromCharCode(code)+'name'));
+});
 test('reads CLI envelope and RFC3339',()=>assert.equal(parse()[0].timestamp,'2026-09-29T10:00:00.000Z'));
 test('accepts empty null list',()=>assert.deepEqual(parseMessages('{"data":{"messages":null}}'),[]));
 test('rejects unknown JSON shape instead of reporting success',()=>assert.throws(()=>parseMessages('{"data":{}}')));

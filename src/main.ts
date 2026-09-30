@@ -1,8 +1,8 @@
-import {Plugin, PluginSettingTab, Setting, Notice, TFile, TFolder, App, Modal, SecretComponent, requestUrl, getLanguage, requireApiVersion} from 'obsidian';
+import {Plugin, PluginSettingTab, Setting, Notice, TFile, TFolder, App, Modal, SecretComponent, getLanguage, requireApiVersion} from 'obsidian';
 import {defaults, Settings, Message, validate, notePath, mergeNote, upgradeSettings} from './core';
 import {WacliClient, storeDirectory, findCompatibleExecutable} from './client';
 import {Collector} from './collector';
-import {install, managedStore, WACLI_VERSION} from './installer';
+import {ConnectorModal} from './connector';
 import {toDataURL} from 'qrcode';
 import {existsSync} from 'fs';
 import {join} from 'path';
@@ -40,20 +40,14 @@ export default class WhatsAppBridge extends Plugin {
     if(this.settings.autoCollect) { try {this.collector.start({...this.settings},'sync');} catch {this.lastResult=this.text('Could not start the collector automatically. Check the settings.','Não foi possível iniciar o coletor automaticamente. Verifique as configurações.');} }
   }
   onunload() { this.unloaded=true; this.collector.dispose(); this.stopped=true; this.client.cancel(); if(this.timer!==null)window.clearInterval(this.timer); }
-  async downloadWacli() {
-    if(this.installing || this.collector.state.running || this.busy)throw new Error('Aguarde a operação atual ou pare o coletor antes de instalar.');
-    this.installing=true;
-    try {
-      const path=await install(async url=>{
-        const result=await requestUrl({url,method:'GET',throw:false});
-        if(result.status!==200)throw new Error('Falha no download do GitHub. Confira a conexão e tente novamente.');
-        return result.arrayBuffer;
-      },()=>this.unloaded);
-      if(this.unloaded)return;
-      if(!this.settings.store && !existsSync(join(storeDirectory(this.settings),'wacli.db')))this.settings.store=managedStore(this.settings.source);
+  configureConnector(refresh:()=>void) {
+    new ConnectorModal(this.app,async path=>{
+      if(this.unloaded||this.busy||this.collector.state.running)throw new Error(this.text('Stop the collector and wait for the current operation.','Pare o coletor e aguarde a operação atual.'));
+      const previous=this.settings.executable;
       this.settings.executable=path;
-      await this.save();this.lastResult=this.text('wacli installed. Now select Connect WhatsApp.','wacli instalado. Agora clique em Conectar WhatsApp.');
-    } finally {this.installing=false;}
+      try {await this.save();}catch(error){this.settings.executable=previous;throw error;}
+      refresh();
+    }).open();
   }
   startCollector(mode:'auth'|'sync') {
     if(this.installing || this.busy)throw new Error('Aguarde a operação atual.');
@@ -201,10 +195,11 @@ class BridgeSettings extends PluginSettingTab {
       try {const promise=fn();this.display();await promise;}catch(e){new Notice(e instanceof Error?e.message:'Falha na operação.');}
       finally {if(this.visible)this.display();}
     };
-    c.createEl('h2',{text:'WhatsApp Bridge · 0.4.0'});
+    c.createEl('h2',{text:`WhatsApp Bridge · ${p.manifest.version}`});
     c.createEl('p',{text:t.intro,cls:'whatsapp-bridge-help'});
-    new Setting(c).setName(t.install).setDesc(t.installDesc(WACLI_VERSION))
-      .addButton(b=>b.setButtonText(p.installing?t.downloading:s.executable?t.reinstall:t.download).setDisabled(locked).onClick(act(()=>p.downloadWacli())));
+    new Setting(c).setName(getLanguage().startsWith('pt')?'1. Configurar wacli':'1. Configure wacli')
+      .setDesc(getLanguage().startsWith('pt')?'Baixe pelo navegador e selecione o executável. O arquivo permanece onde você o salvou.':'Download in your browser and select the executable. The file stays where you saved it.')
+      .addButton(b=>b.setButtonText(getLanguage().startsWith('pt')?'Configurar conector':'Set up connector').setDisabled(locked||p.busyState).onClick(()=>p.configureConnector(()=>{if(this.visible)this.display();})));
     new Setting(c).setName(t.connect).setDesc(t.connectDesc)
       .addButton(b=>b.setButtonText(t.showQr).setDisabled(locked).onClick(act(()=>p.startCollector('auth'))));
     const status=c.createEl('p',{text:p.collector.state.status});status.setAttribute('role','status');

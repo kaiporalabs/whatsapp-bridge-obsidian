@@ -1,4 +1,4 @@
-# WhatsApp Bridge 0.4.0 — instalação e teste
+# WhatsApp Bridge 0.4.1 — instalação e teste
 
 Esta versão permite instalar o conector e parear pelo Obsidian. Não é necessário abrir terminal no fluxo normal. Comece em um vault de teste.
 
@@ -13,7 +13,6 @@ Esta versão permite instalar o conector e parear pelo Obsidian. Não é necess�
 
 Abra Configurações → WhatsApp Bridge:
 
-1. **Baixar e instalar wacli**: o plugin escolhe o binário da sua plataforma, baixa a versão 0.19.0 do projeto openclaw/wacli no GitHub, verifica SHA-256 e instala fora do vault. Aguarde a conclusão. Não precisa de administrador.
 2. **Mostrar QR code**: no celular, abra WhatsApp → Dispositivos conectados → Conectar dispositivo e escaneie o QR exibido. Isso cria um dispositivo vinculado próprio. Aguarde o estado Conectado; o QR desaparece e a coleta continua.
 3. **Importar agora**: confira as notas. Em instalações novas, a pasta sugerida é `WhatsApp` e a importação periódica usa intervalo de 1 minuto. Atualizações preservam a pasta anterior.
 
@@ -71,3 +70,17 @@ Uma janela com 10.000 mensagens aborta antes de escrever; diminua os dias. Hist�
 ## Feedback
 
 Envie versões do Windows, Obsidian e plugin, a etapa que falhou e o texto do estado. Não envie QR code, bancos, credenciais ou mensagens. O download/extração dos arquivos oficiais Mac e Windows foi verificado no Mac; o pareamento real e a execução Windows ainda precisam deste piloto.
+
+## Configurar o conector
+
+É necessária uma conta WhatsApp. Nas configurações, clique em **Configurar conector**. No popup, abra a página oficial do wacli 0.19.0, baixe o arquivo indicado para sua plataforma e salve em **Downloads**. Extraia o arquivo (no Windows: botão direito → Extrair tudo). Arraste o executável extraído `wacli.exe` (Windows) ou `wacli` (Mac/Linux) para o popup; também é possível colar seu caminho completo. Clique em **Validar e usar executável**. A janela permanece aberta durante o download e mostra o resultado da validação. Feche-a e clique em **Mostrar QR code** para parear.
+
+A validação executa `wacli --version`; somente a versão 0.19.0 é aceita nesse fluxo. O plugin não baixa, instala, move, altera permissões ou atualiza dependências. Mantenha o executável no local selecionado. Instalações e sessões configuradas em versões anteriores continuam sendo usadas. Se o sistema bloquear a execução, siga as instruções oficiais do wacli para sua plataforma.
+
+## Contas, rede e arquivos externos
+
+O wacli é um conector independente e não oficial. O navegador acessa GitHub para baixar o conector; o wacli acessa WhatsApp para pareamento, sincronização e download opcional de áudio. As credenciais e a base local ficam fora do vault para evitar que sejam sincronizadas junto às notas: por padrão, `~/.wacli` em Mac/Windows e `~/.local/state/wacli` no Linux, ou o caminho configurado pelo usuário. Versões anteriores podem usar `WhatsAppBridge/accounts` em LocalAppData (Windows), Library/Application Support (Mac), ou `whatsapp-bridge/accounts` em XDG_DATA_HOME/`~/.local/share` (Linux). Esses caminhos são preservados.
+
+Áudios passam por uma pasta temporária do sistema antes de serem copiados para o vault; o plugin tenta removê-la ao concluir ou falhar. As notas e os áudios no vault ficam sujeitos à sincronização e aos demais plugins. Não há telemetria implementada pelo plugin. Não compartilhe credenciais, bancos ou áudios privados em relatos de erro.
+
+A transcrição é opcional e desativada por padrão. Ela envia o arquivo de áudio à API OpenAI e exige uma conta, chave de API e cobrança conforme o uso pelo provedor. Importar mensagens não exige OpenAI. A chave fica no SecretStorage; o recurso requer Obsidian 1.11.4. Consulte as condições e a privacidade do provedor antes de ativar.

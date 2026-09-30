@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.1
+
+- Substitui instalação automática por download externo guiado e seleção do executável, sem mover ou instalar arquivos.
+- Preserva sessões e caminhos anteriores; valida wacli 0.19.0 antes de salvar a seleção.
+- Corrige Obsidian mínimo para 1.8.7 e mantém transcrição condicionada à versão 1.11.4.
+- Inclui licenças no bundle e documenta contas, custos opcionais e arquivos externos.
+
 ## 0.4.0
 
 - Adiciona download opt-in de mensagens de áudio pelo wacli em modo somente leitura.

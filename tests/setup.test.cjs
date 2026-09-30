@@ -9,16 +9,26 @@ const {gzipSync}=require('node:zlib');
 const {createHash}=require('node:crypto');
 const {zipSync}=require('fflate');
 const cp=require('node:child_process');
-const {release,verifyArchive,extractBinary}=require('../.test-build/installer.cjs');
 const {findCompatibleExecutable}=require('../.test-build/client.cjs');
 const {Collector,EventLines,collectorArgs}=require('../.test-build/collector.cjs');
 const {defaults}=require('../.test-build/core.cjs');
-test('selects pinned release for Windows x64 and Mac architectures',()=>{
-  assert.equal(release('win32','x64').filename,'wacli_0.19.0_windows_amd64.zip');
-  assert.match(release('darwin','arm64').filename,/arm64.tar.gz$/);
-  assert.match(release('darwin','x64').filename,/amd64.tar.gz$/);
-  assert.throws(()=>release('win32','arm64'));
+const Module=require('node:module');
+const load=Module._load;
+Module._load=function(name,...args){return name==='obsidian'?{Modal:class{}}:load.call(this,name,...args);};
+const {checkExecutable,assetName}=require('../.test-build/connector.cjs');
+Module._load=load;
+test('external connector rejects archives and incompatible versions without changing the file',async()=>{
+  const fs=require('node:fs');const dir=mkdtempSync(join(tmpdir(),'wa-external-test-'));
+  const path=join(dir,process.platform==='win32'?'wacli.exe':'wacli');fs.writeFileSync(path,'fixture');
+  let calls=0;const run=(bin,args,options,done)=>{calls++;assert.equal(bin,path);assert.deepEqual(args,['--version']);assert.equal(options.shell,false);done(null,'wacli 0.19.0','');};
+  try{
+    await assert.rejects(checkExecutable(path+'.zip',run));assert.equal(calls,0);
+    await checkExecutable(path,run);assert.equal(calls,1);assert.equal(fs.readFileSync(path,'utf8'),'fixture');
+    await assert.rejects(checkExecutable(path,(bin,args,options,done)=>done(null,'wacli 0.20.0','')));
+    assert.equal(assetName('win32','x64'),'wacli_0.19.0_windows_amd64.zip');assert.equal(assetName('win32','arm64'),'');
+  }finally{rmSync(dir,{recursive:true,force:true});}
 });
+
 test('PATH detection accepts only the pinned compatible wacli version',async()=>{
   const calls=[];
   const compatible=(file,args,options,done)=>{calls.push(file);done(file.includes('homebrew')?null:Error('missing'),file.includes('homebrew')?'wacli version 0.19.0':'','');};
@@ -28,21 +38,9 @@ test('PATH detection accepts only the pinned compatible wacli version',async()=>
   const old=(file,args,options,done)=>done(null,'wacli version 0.18.0','');
   assert.equal(await findCompatibleExecutable(old),null);
 });
-test('checksum mismatch refuses archive',()=>{
-  const b=Buffer.from('fixture'),sha=createHash('sha256').update(b).digest('hex');
-  verifyArchive(b,sha);assert.throws(()=>verifyArchive(Buffer.from('changed'),sha));
-});
-test('ZIP extracts only root executable, not traversal paths',()=>{
-  const bytes=Uint8Array.from([77,90,1]);
-  const zip=zipSync({'wacli.exe':bytes,'../../bad.exe':bytes});
-  assert.deepEqual(extractBinary(zip,'wacli.exe',true),bytes);
-  assert.throws(()=>extractBinary(zipSync({'../../wacli.exe':bytes}),'wacli.exe',true));
-});
-test('TAR extracts regular file and rejects symlink',()=>{
-  const tar=Buffer.alloc(1536);tar.write('wacli');tar.write('00000000003\0',124);tar[156]=48;tar.write('abc',512);
-  assert.equal(Buffer.from(extractBinary(gzipSync(tar),'wacli',false)).toString(),'abc');
-  tar[156]=50;assert.throws(()=>extractBinary(gzipSync(tar),'wacli',false));
-});
+
+
+
 test('NDJSON handles fragmented events and ignores ordinary stderr',()=>{
   const parser=new EventLines(),events=[];
   parser.push('log line\n{"event":"qr_',(...a)=>events.push(a));

@@ -42,7 +42,7 @@ export class ConnectorModal extends Modal {
     let update:(value:string)=>void=()=>{};
     field.addText(input=>{input.setPlaceholder(process.platform==='win32'?'C:\\Users\\...\\Downloads\\wacli.exe':'/Users/.../Downloads/wacli');input.onChange(v=>{this.selected=v.trim();});update=v=>{this.selected=v;input.setValue(v);};});
     c.addEventListener('dragover',event=>{event.preventDefault();});
-    c.addEventListener('drop',async event=>{
+    const handleDrop=async(event:DragEvent):Promise<void>=>{
       event.preventDefault();event.stopPropagation();if(this.active)return;
       const files=event.dataTransfer?.files;if(!files||files.length!==1)return;
       const file=files[0] as File & {path?:string};
@@ -50,7 +50,8 @@ export class ConnectorModal extends Modal {
       try{if(!path)path=(await import('electron')).webUtils.getPathForFile(file);}catch{/* Manual path remains available on older Electron. */}
       if(this.closed||this.active)return;
       if(path)update(path);else status.setText(this.t('Paste the full path instead.','Cole o caminho completo do arquivo.'));
-    });
+    };
+    c.addEventListener('drop',event=>{void handleDrop(event).catch(()=>{if(!this.closed)status.setText(this.t('Paste the full path instead.','Cole o caminho completo do arquivo.'));});});
     c.createEl('p',{text:this.t('Validation executes only wacli --version. wacli is independent, unofficial software. The plugin does not install, move, or update it. Pairing later connects to WhatsApp and saves credentials outside the vault.','A validação executa apenas wacli --version. O wacli é um software independente e não oficial. O plugin não instala, move ou atualiza o executável. O pareamento posterior conecta ao WhatsApp e salva credenciais fora do vault.')});
     const status=c.createEl('p',{attr:{role:'status'}});
     new Setting(c).addButton(b=>b.setButtonText(this.t('Validate and use executable','Validar e usar executável')).setCta().onClick(async()=>{

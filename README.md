@@ -1,12 +1,12 @@
 # WhatsApp Bridge
 
-An independent Obsidian desktop plugin, currently in beta **0.4.2**. Imports messages and optional audio attachments from the local **wacli** store into Markdown notes. It does not use the protected Microsoft Store databases or depend on the WhatsApp Local Sync plugin.
+An independent Obsidian desktop plugin, currently in beta **0.4.3**. Imports messages and optional audio attachments from the local **wacli** store into Markdown notes. It does not use the protected Microsoft Store databases or depend on the WhatsApp Local Sync plugin.
 
 ## Requirements
 
-- Obsidian desktop **1.8.7 or newer** on Windows, macOS, or Linux.
+- Obsidian desktop **1.13.1 or newer** on Windows, macOS, or Linux.
 - A WhatsApp account and **wacli 0.19.0**, installed separately.
-- Optional cloud transcription requires Obsidian **1.11.4 or newer**, an OpenAI API account and key, and usage-based charges from the provider. Importing messages does not require OpenAI.
+- Optional cloud transcription requires Obsidian **1.13.1 or newer**, an OpenAI API account and key, and usage-based charges from the provider. Importing messages does not require OpenAI.
 
 ## Install the plugin
 

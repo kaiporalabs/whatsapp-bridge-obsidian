@@ -15,6 +15,24 @@ export const defaults: Settings = {
   downloadAudio:false,audioFolder:'Media/Audio',transcribeAudio:false,openaiSecret:'',
   transcriptionModel:'gpt-4o-mini-transcribe',transcriptionLanguage:'auto',audioMaxMB:25
 };
+export function isRecord(value:unknown):value is Record<string,unknown>{
+  return typeof value==='object'&&value!==null&&!Array.isArray(value);
+}
+export function readSavedSettings(data:unknown):Partial<Settings>|undefined{
+  if(!isRecord(data)||!isRecord(data.settings))return undefined;
+  const saved=data.settings;
+  const result:Partial<Settings>={};
+  for(const key of ['executable','store','source','folder','groupFolder','personalFolder','ownName','audioFolder','openaiSecret','transcriptionModel','transcriptionLanguage'] as const){
+    const value=saved[key];if(typeof value==='string')result[key]=value;
+  }
+  for(const key of ['days','interval','audioMaxMB'] as const){
+    const value=saved[key];if(typeof value==='number'&&Number.isFinite(value))result[key]=value;
+  }
+  for(const key of ['groups','personal','autoCollect','downloadAudio','transcribeAudio'] as const){
+    const value=saved[key];if(typeof value==='boolean')result[key]=value;
+  }
+  return result;
+}
 export function upgradeSettings(previous:Partial<Settings>|null|undefined,portuguese=false):Settings{
   const result={...defaults,...(previous??{})};
   if(previous){

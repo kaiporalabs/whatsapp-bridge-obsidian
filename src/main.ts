@@ -1,13 +1,12 @@
-import {Plugin, PluginSettingTab, Setting, Notice, TFile, TFolder, App, Modal, SecretComponent, getLanguage, requireApiVersion} from 'obsidian';
-import {defaults, Settings, Message, validate, notePath, mergeNote, upgradeSettings} from './core';
+import {Plugin, Setting, Notice, TFile, TFolder, App, Modal, getLanguage} from 'obsidian';
+import {defaults, Settings, Message, validate, notePath, mergeNote, upgradeSettings, readSavedSettings} from './core';
 import {WacliClient, storeDirectory, findCompatibleExecutable} from './client';
 import {Collector} from './collector';
 import {ConnectorModal} from './connector';
-import {toDataURL} from 'qrcode';
 import {existsSync} from 'fs';
 import {join} from 'path';
 import {messages} from './i18n';
-import type {SettingDefinitionItem} from 'obsidian';
+import {BridgeSettings} from './settings';
 import {audioIndexPath,audioKey,deterministicAudioPath,findIndexedAudio,hasTranscript,indexedTranscript,isAudio,mergeAudioIntoNote,transcribe,updateAudioIndex,AudioRecord} from './audio';
 
 export default class WhatsAppBridge extends Plugin {
@@ -24,8 +23,8 @@ export default class WhatsAppBridge extends Plugin {
   lastResult = getLanguage().toLowerCase().startsWith('pt')?'Ainda não testado.':'Not tested yet.';
   private text(en:string,pt:string){return getLanguage().toLowerCase().startsWith('pt')?pt:en;}
   async onload() {
-    const stored = await this.loadData();
-    const previous=stored?.settings;
+    const stored:unknown = await this.loadData();
+    const previous=readSavedSettings(stored);
     this.settings = upgradeSettings(previous,getLanguage().toLowerCase().startsWith('pt'));
     if(!this.settings.executable){
       const detected=await findCompatibleExecutable();
@@ -179,100 +178,7 @@ export default class WhatsAppBridge extends Plugin {
     } finally {this.busy=false;}
   }
 }
-class BridgeSettings extends PluginSettingTab {
-  getSettingDefinitions():SettingDefinitionItem[]{
-    const t=messages(getLanguage()),p=this.plugin;
-    const text=(key:'folder'|'groupFolder'|'personalFolder'|'audioFolder'|'ownName',name:string,desc:string):SettingDefinitionItem=>({name,desc,render:row=>{row.addText(input=>input.setValue(p.settings[key]).onChange(async value=>{p.settings[key]=value;await p.save();}));}});
-    const toggle=(key:'groups'|'personal'|'autoCollect'|'downloadAudio',name:string):SettingDefinitionItem=>({name,render:row=>{row.addToggle(input=>input.setValue(p.settings[key]).onChange(async value=>{p.settings[key]=value;if(key==='downloadAudio'&&!value)p.settings.transcribeAudio=false;await p.save();}));}});
-    return [text('folder',t.destination,t.destinationDesc),text('groupFolder',t.groupFolder,t.groupFolderDesc),text('personalFolder',t.personalFolder,t.personalFolderDesc),text('audioFolder',t.audioFolder,t.audioFolderDesc),text('ownName',t.ownName,t.ownNameDesc),toggle('groups',t.groups),toggle('personal',t.personal),toggle('autoCollect',t.auto),toggle('downloadAudio',t.downloadAudio),
-      {name:t.interval,desc:t.intervalDesc,render:row=>{row.addText(input=>input.setValue(String(p.settings.interval)).onChange(async value=>{const n=Number(value);if(!Number.isInteger(n)||n<0||n>1440)return;p.settings.interval=n;await p.save();p.restartTimer();}));}},
-      {name:t.transcribeAudio,desc:t.transcribeAudioDesc,render:row=>{row.addToggle(input=>input.setValue(p.settings.transcribeAudio).setDisabled(!p.settings.downloadAudio||!requireApiVersion('1.11.4')).onChange(async value=>{p.settings.transcribeAudio=value;await p.save();}));}},
-      {name:t.openaiSecret,desc:t.openaiSecretDesc,render:row=>{if(requireApiVersion('1.11.4'))row.addComponent(el=>new SecretComponent(this.app,el).setValue(p.settings.openaiSecret).onChange(async value=>{p.settings.openaiSecret=value??'';await p.save();}));}},
-      {name:t.executable,desc:t.executableDesc,render:row=>{row.addButton(b=>b.setButtonText('Configure wacli').setDisabled(p.busyState||p.collector.state.running).onClick(()=>p.configureConnector(()=>{})));}}
-    ];
-  }
-  private unsubscribe: (()=>void)|null=null;
-  private visible=false;
-  private renderId=0;
-  constructor(app: App,private plugin: WhatsAppBridge) {super(app,plugin);}
-  hide(){this.visible=false;this.renderId++;this.unsubscribe?.();this.unsubscribe=null;this.containerEl.empty();}
-  display() {
-    this.visible=true;
-    if(!this.unsubscribe)this.unsubscribe=this.plugin.collector.subscribe(()=>{if(this.visible)this.display();});
-    const generation=++this.renderId;
-    const {containerEl:c}=this;c.empty(); const p=this.plugin,s=p.settings;
-    const t=messages(getLanguage());
-    const running=p.collector.state.running,locked=running||p.installing;
-    const act=(fn:()=>void|Promise<void>)=>async()=>{
-      try {const promise=fn();this.display();await promise;}catch(e){new Notice(e instanceof Error?e.message:'Falha na operação.');}
-      finally {if(this.visible)this.display();}
-    };
-    new Setting(c).setName(`WhatsApp Bridge · ${p.manifest.version}`).setHeading();
-    c.createEl('p',{text:t.intro,cls:'whatsapp-bridge-help'});
-    new Setting(c).setName(getLanguage().startsWith('pt')?'1. Configurar wacli':'1. Configure wacli')
-      .setDesc(getLanguage().startsWith('pt')?'Baixe pelo navegador e selecione o executável. O arquivo permanece onde você o salvou.':'Download in your browser and select the executable. The file stays where you saved it.')
-      .addButton(b=>b.setButtonText(getLanguage().startsWith('pt')?'Configurar conector':'Set up connector').setDisabled(locked||p.busyState).onClick(()=>p.configureConnector(()=>{if(this.visible)this.display();})));
-    new Setting(c).setName(t.connect).setDesc(t.connectDesc)
-      .addButton(b=>b.setButtonText(t.showQr).setDisabled(locked).onClick(act(()=>p.startCollector('auth'))));
-    const status=c.createEl('p',{text:p.collector.state.status});status.setAttribute('role','status');
-    const code=p.collector.state.qr;
-    if(code){
-      const qr=c.createDiv({cls:'whatsapp-bridge-qr'});
-      qr.createEl('p',{text:t.pointQr});
-      void toDataURL(code,{width:320,margin:4,errorCorrectionLevel:'M'}).then(url=>{
-        if(this.visible&&generation===this.renderId)qr.createEl('img',{attr:{src:url,alt:t.qrAlt,width:'320',height:'320'}});
-      }).catch(()=>{if(this.visible&&generation===this.renderId)qr.createEl('p',{text:t.qrError});});
-    }
-    new Setting(c).setName(t.sync).setDesc(t.syncDesc)
-      .addButton(b=>b.setButtonText(t.start).setDisabled(locked).onClick(act(()=>p.startCollector('sync'))))
-      .addButton(b=>b.setButtonText(t.stop).setDisabled(!running).onClick(()=>p.collector.stop()));
-    new Setting(c).setName(t.logout).setDesc(t.logoutDesc)
-      .addButton(b=>b.setButtonText(t.logoutButton).setWarning().setDisabled(p.installing||p.busyState).onClick(async()=>{
-        const confirmed=await confirmLogout(this.app,t);
-        if(confirmed)await act(()=>p.logoutWhatsApp())();
-      }));
-    new Setting(c).setName(t.auto).setDesc(t.autoDesc)
-      .addToggle(t=>t.setValue(s.autoCollect).onChange(async v=>{s.autoCollect=v;await p.save();}));
-    new Setting(c).setName(t.destination).setDesc(t.destinationDesc)
-      .addText(t=>t.setValue(s.folder).onChange(async v=>{s.folder=v;await p.save();}));
-    new Setting(c).setName(t.groupFolder).setDesc(t.groupFolderDesc)
-      .addText(input=>input.setValue(s.groupFolder).onChange(async v=>{s.groupFolder=v;await p.save();}));
-    new Setting(c).setName(t.personalFolder).setDesc(t.personalFolderDesc)
-      .addText(input=>input.setValue(s.personalFolder).onChange(async v=>{s.personalFolder=v;await p.save();}));
-    new Setting(c).setName(t.interval).setDesc(t.intervalDesc)
-      .addText(t=>t.setValue(String(s.interval)).onChange(async v=>{s.interval=Number(v);await p.save();p.restartTimer();}));
-    new Setting(c).setName(t.audio).setHeading();
-    new Setting(c).setName(t.downloadAudio).setDesc(t.downloadAudioDesc)
-      .addToggle(input=>input.setValue(s.downloadAudio).onChange(async v=>{s.downloadAudio=v;if(!v)s.transcribeAudio=false;await p.save();this.display();}));
-    new Setting(c).setName(t.audioFolder).setDesc(t.audioFolderDesc)
-      .addText(input=>input.setValue(s.audioFolder).setDisabled(!s.downloadAudio).onChange(async v=>{s.audioFolder=v;await p.save();}));
-    const secretsAvailable=requireApiVersion('1.11.4');
-    new Setting(c).setName(t.transcribeAudio).setDesc(t.transcribeAudioDesc)
-      .addToggle(input=>input.setValue(s.transcribeAudio).setDisabled(!s.downloadAudio||!secretsAvailable).onChange(async v=>{s.transcribeAudio=v;await p.save();this.display();}));
-    const secretSetting=new Setting(c).setName(t.openaiSecret).setDesc(t.openaiSecretDesc);
-    if(secretsAvailable)secretSetting.addComponent(el=>new SecretComponent(this.app,el).setValue(s.openaiSecret).onChange(async v=>{s.openaiSecret=v??'';await p.save();}));
-    secretSetting.setDisabled(!s.downloadAudio||!s.transcribeAudio||!secretsAvailable);
-    new Setting(c).setName(t.transcriptionLanguage).setDesc(t.transcriptionLanguageDesc)
-      .addDropdown(input=>input.addOption('auto','Auto').addOption('pt','Português').addOption('en','English').setValue(s.transcriptionLanguage).setDisabled(!s.downloadAudio||!s.transcribeAudio).onChange(async v=>{s.transcriptionLanguage=v;await p.save();}));
-    new Setting(c).setName(t.audioMax).setDesc(t.audioMaxDesc)
-      .addText(input=>input.setValue(String(s.audioMaxMB)).setDisabled(!s.downloadAudio).onChange(async v=>{s.audioMaxMB=Number(v);await p.save();}));
-    c.createEl('p',{text:t.audioPrivacy,cls:'whatsapp-bridge-help'});
-    new Setting(c).setName(t.importing).setDesc(p.lastResult)
-      .addButton(b=>b.setButtonText(t.importNow).setCta().onClick(act(()=>p.run(false))))
-      .addButton(b=>b.setButtonText(t.test).onClick(act(()=>p.run(true))));
-    const advanced=c.createEl('details');advanced.createEl('summary',{text:t.advanced});
-    const field=(key:'executable'|'store'|'source'|'ownName',name:string,desc:string)=>new Setting(advanced).setName(name).setDesc(desc).addText(t=>t.setValue(s[key]).setDisabled(locked).onChange(async v=>{s[key]=v;await p.save();}));
-    field('executable',t.executable,t.executableDesc);
-    field('store',t.store,t.storeDesc);
-    field('source',t.source,t.sourceDesc);
-    field('ownName',t.ownName,t.ownNameDesc);
-    new Setting(advanced).setName(t.days).setDesc(t.daysDesc).addText(input=>input.setValue(String(s.days)).onChange(async v=>{s.days=Number(v);await p.save();}));
-    new Setting(advanced).setName(t.groups).addToggle(input=>input.setValue(s.groups).onChange(async v=>{s.groups=v;await p.save();}));
-    new Setting(advanced).setName(t.personal).addToggle(input=>input.setValue(s.personal).onChange(async v=>{s.personal=v;await p.save();}));
-    c.createEl('p',{text:t.privacy,cls:'whatsapp-bridge-help'});
-  }
-}
-function confirmLogout(app:App,t:ReturnType<typeof messages>):Promise<boolean>{
+export function confirmLogout(app:App,t:ReturnType<typeof messages>):Promise<boolean>{
   return new Promise(resolve=>new LogoutModal(app,t,resolve).open());
 }
 class LogoutModal extends Modal{
@@ -283,7 +189,7 @@ class LogoutModal extends Modal{
     this.contentEl.createEl('p',{text:this.t.logoutConfirm});
     new Setting(this.contentEl)
       .addButton(b=>b.setButtonText(this.t.cancel).onClick(()=>this.finish(false)))
-      .addButton(b=>b.setButtonText(this.t.logoutButton).setWarning().onClick(()=>this.finish(true)));
+      .addButton(b=>b.setButtonText(this.t.logoutButton).setDestructive().onClick(()=>this.finish(true)));
   }
   onClose(){this.contentEl.empty();if(!this.answered){this.answered=true;this.answer(false);}}
   private finish(value:boolean){if(this.answered)return;this.answered=true;this.answer(value);this.close();}

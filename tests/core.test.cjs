@@ -1,6 +1,6 @@
 const {test}=require('node:test');
 const assert=require('node:assert/strict');
-const {defaults,parseMessages,mergeNote,notePath,messageKey,folderPath,validate,upgradeSettings}=require('../.test-build/core.cjs');
+const {defaults,parseMessages,mergeNote,notePath,messageKey,folderPath,validate,upgradeSettings,readSavedSettings}=require('../.test-build/core.cjs');
 const {argumentsFor,logoutArguments,mediaArguments,executable}=require('../.test-build/client.cjs');
 const Module=require('node:module');const original=Module._load;
 Module._load=function(name,...args){return name==='obsidian'?{requestUrl:()=>{throw Error('Unexpected request');}}:original.call(this,name,...args);};
@@ -9,6 +9,12 @@ Module._load=original;
 const {language,messages}=require('../.test-build/i18n.cjs');
 const raw={ChatJID:'123@g.us',ChatName:'Equipe',MsgID:'abc',Timestamp:'2026-09-29T10:00:00Z',FromMe:false,SenderName:'Ana',Text:'Olá'};
 const parse=(r=raw)=>parseMessages(JSON.stringify({success:true,data:{messages:[r]}}));
+test('saved settings accept only known fields with the correct types',()=>{
+  for(const data of [null,[],42,{settings:[]},{settings:'bad'}])assert.equal(readSavedSettings(data),undefined);
+  const previous=readSavedSettings({settings:{folder:'Existing notes',store:'/my/store',interval:'1',days:Infinity,autoCollect:'false',groups:false,source:'work',unknown:'ignored'}});
+  assert.deepEqual(previous,{folder:'Existing notes',store:'/my/store',groups:false,source:'work'});
+  const settings=upgradeSettings(previous);assert.equal(settings.folder,'Existing notes');assert.equal(settings.interval,1);assert.equal(settings.autoCollect,false);
+});
 test('transcription sends binary multipart through requestUrl and handles HTTP errors',async()=>{
   const bytes=Uint8Array.from([0,1,128,255]).buffer;
   const request=async options=>{

@@ -9,8 +9,24 @@ class Modal{}
 const original=Module._load;
 Module._load=function(name,...args){if(name==='obsidian')return{Plugin,PluginSettingTab:class{},Modal,Notice:class{},TFile,TFolder,getLanguage:()=> 'en'};return original.call(this,name,...args);};
 const Bridge=require('../.test-build/main.cjs').default;
+const {BridgeSettings}=require('../.test-build/settings.cjs');
 Module._load=original;
 const row={chat:'x@g.us',name:'Test',id:'1',timestamp:'2026-09-29T12:00:00.000Z',fromMe:false,sender:'Alice',text:'fixture'};
+test('declarative settings preserve connection actions and clean up their subscriptions',()=>{
+  const p=new Bridge();p.manifest={version:'0.4.3'};
+  const tab=new BridgeSettings({},p),items=tab.getSettingDefinitions();
+  const names=items.map(item=>item.name);
+  for(const name of ['2. Connect WhatsApp','3. Synchronization','Disconnect WhatsApp','Import','Advanced options','OpenAI API key'])assert.ok(names.includes(name),name);
+  assert.equal(Object.hasOwn(BridgeSettings.prototype,'display'),false);
+  const buttons=[];
+  const row={addButton(fn){const button={setButtonText(){return this;},onClick(fn){this.click=fn;return this;},setDisabled(value){this.disabled=value;return this;}};buttons.push(button);fn(button);return this;}};
+  const sync=items.find(item=>item.name==='3. Synchronization');
+  const cleanup=sync.render(row);
+  assert.equal(buttons[0].disabled,false);assert.equal(buttons[1].disabled,true);
+  p.collector.state.running=true;p.collector.notify();
+  assert.equal(buttons[0].disabled,true);assert.equal(buttons[1].disabled,false);
+  cleanup();p.collector.state.running=false;p.collector.notify();assert.equal(buttons[0].disabled,true);
+});
 function setup(){
   const p=new Bridge();const files=new Map(),contents=new Map(),binaries=new Map();
   p.status={setText(){}};

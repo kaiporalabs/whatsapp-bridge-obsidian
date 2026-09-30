@@ -30,7 +30,7 @@ O botão **Desconectar e apagar credenciais** pede confirmação, encerra o cole
 4. Verifique o player na nota da conversa, o arquivo em `Media/Audio` e a entrada em `Audio Index.md` com conversa, remetente e horário.
 5. Execute a importação novamente e confirme que nem o arquivo nem a entrada são duplicados.
 
-Para testar transcrição, use Obsidian 1.11.4 ou mais recente, selecione uma chave da API OpenAI pelo SecretStorage e ative **Transcrever áudios baixados**. O áudio será enviado à OpenAI. Não use conversas privadas no primeiro teste.
+Para testar transcrição, use Obsidian 1.13.1 ou mais recente, selecione uma chave da API OpenAI pelo SecretStorage e ative **Transcrever áudios baixados**. O áudio será enviado à OpenAI. Não use conversas privadas no primeiro teste.
 
 Depois do primeiro pareamento, ative **Iniciar coletor ao abrir Obsidian** se desejar. Em aberturas posteriores, também é possível clicar **Iniciar**, sem escanear novamente. **Parar** encerra a coleta deste plugin e preserva o vínculo. A importação consulta o que já está na base, mesmo com coletor parado.
 
@@ -83,4 +83,4 @@ O wacli é um conector independente e não oficial. O navegador acessa GitHub pa
 
 Áudios passam por uma pasta temporária do sistema antes de serem copiados para o vault; o plugin tenta removê-la ao concluir ou falhar. As notas e os áudios no vault ficam sujeitos à sincronização e aos demais plugins. Não há telemetria implementada pelo plugin. Não compartilhe credenciais, bancos ou áudios privados em relatos de erro.
 
-A transcrição é opcional e desativada por padrão. Ela envia o arquivo de áudio à API OpenAI e exige uma conta, chave de API e cobrança conforme o uso pelo provedor. Importar mensagens não exige OpenAI. A chave fica no SecretStorage; o recurso requer Obsidian 1.11.4. Consulte as condições e a privacidade do provedor antes de ativar.
+A transcrição é opcional e desativada por padrão. Ela envia o arquivo de áudio à API OpenAI e exige uma conta, chave de API e cobrança conforme o uso pelo provedor. Importar mensagens não exige OpenAI. A chave fica no SecretStorage; o recurso requer Obsidian 1.13.1. Consulte as condições e a privacidade do provedor antes de ativar.

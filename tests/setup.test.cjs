@@ -49,6 +49,11 @@ test('NDJSON handles fragmented events and ignores ordinary stderr',()=>{
   assert.deepEqual(events,[['qr_code',{code:'secret'}]]);
   assert.throws(()=>parser.push('x'.repeat(130*1024),()=>{}));
 });
+test('collector ignores primitive JSON and normalizes invalid event data',()=>{
+  const parser=new EventLines(),events=[];
+  parser.push('null\n42\n[]\n{"event":42}\n{"event":"connected","data":[]}\n{"event":"qr_code","data":{"code":"test"}}\n',(...args)=>events.push(args));
+  assert.deepEqual(events,[['connected',{}],['qr_code',{code:'test'}]]);
+});
 test('collector command contains no shell and no send operation',()=>{
   const args=collectorArgs('auth','C:\\Path with spaces');
   assert.equal(args[1],'C:\\Path with spaces');assert.ok(args.includes('--events'));assert.ok(args.includes('--follow'));assert.ok(!args.includes('--json'));

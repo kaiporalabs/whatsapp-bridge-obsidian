@@ -1,7 +1,7 @@
 import {spawn,ChildProcess} from 'child_process';
 import {mkdirSync} from 'fs';
 import {isAbsolute} from 'path';
-import {Settings} from './core';
+import {Settings,isRecord} from './core';
 import {executable,storeDirectory} from './client';
 
 export type CollectorState={status:string;qr:string;running:boolean;connected:boolean};
@@ -15,8 +15,8 @@ export class EventLines {
     if(this.pending.length>128*1024){this.pending='';throw new Error('Evento wacli excedeu o limite.');}
     const lines=this.pending.split('\n');this.pending=lines.pop()!;
     for(const line of lines) {
-      let v;try{v=JSON.parse(line);}catch{continue;}
-      if(v&&typeof v.event==='string')accept(v.event,v.data&&typeof v.data==='object'?v.data:{});
+      let v:unknown;try{v=JSON.parse(line);}catch{continue;}
+      if(isRecord(v)&&typeof v.event==='string')accept(v.event,isRecord(v.data)?v.data:{});
     }
   }
 }

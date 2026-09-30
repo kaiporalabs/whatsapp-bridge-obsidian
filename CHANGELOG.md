@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.3
+
+- Requires Obsidian 1.13.1 to match the APIs used by settings and SecretStorage.
+- Migrates all settings and connection controls to declarative definitions; replaces deprecated destructive buttons.
+- Validates saved settings and collector JSON before using their fields.
+- Handles drag-and-drop promises explicitly and releases connection listeners when settings rows are removed.
+
 ## 0.4.2
 
 - Regenerates the npm lockfile from a clean environment, including cross-platform optional dependencies.

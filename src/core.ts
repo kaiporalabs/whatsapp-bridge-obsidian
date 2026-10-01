@@ -5,6 +5,7 @@ export interface Settings {
   groupFolder: string; personalFolder: string;
   days: number; interval: number; groups: boolean; personal: boolean; ownName: string;
   autoCollect: boolean;
+  transcriptionProvider: string; whisperExecutable: string; whisperModel: string;
   downloadAudio: boolean; audioFolder: string; transcribeAudio: boolean;
   openaiSecret: string; transcriptionModel: string; transcriptionLanguage: string; audioMaxMB: number;
 }
@@ -12,6 +13,7 @@ export const defaults: Settings = {
   executable: '', store: '', source: 'principal', folder: 'WhatsApp',
   groupFolder: 'Grupos', personalFolder: 'Pessoais',
   days: 7, interval: 1, groups: true, personal: true, ownName: 'Me', autoCollect:false,
+  transcriptionProvider:'openai',whisperExecutable:'',whisperModel:'medium',
   downloadAudio:false,audioFolder:'Media/Audio',transcribeAudio:false,openaiSecret:'',
   transcriptionModel:'gpt-4o-mini-transcribe',transcriptionLanguage:'auto',audioMaxMB:25
 };
@@ -22,7 +24,7 @@ export function readSavedSettings(data:unknown):Partial<Settings>|undefined{
   if(!isRecord(data)||!isRecord(data.settings))return undefined;
   const saved=data.settings;
   const result:Partial<Settings>={};
-  for(const key of ['executable','store','source','folder','groupFolder','personalFolder','ownName','audioFolder','openaiSecret','transcriptionModel','transcriptionLanguage'] as const){
+  for(const key of ['executable','store','source','folder','groupFolder','personalFolder','ownName','audioFolder','openaiSecret','transcriptionModel','transcriptionLanguage','transcriptionProvider','whisperExecutable','whisperModel'] as const){
     const value=saved[key];if(typeof value==='string')result[key]=value;
   }
   for(const key of ['days','interval','audioMaxMB'] as const){

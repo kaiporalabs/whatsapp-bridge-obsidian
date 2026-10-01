@@ -7,9 +7,10 @@ class TFolder{constructor(path){this.path=path;}}
 class Plugin{ }
 class Modal{}
 const original=Module._load;
-Module._load=function(name,...args){if(name==='obsidian')return{Plugin,PluginSettingTab:class{},Modal,Notice:class{},TFile,TFolder,getLanguage:()=> 'en'};return original.call(this,name,...args);};
+Module._load=function(name,...args){if(name==='electron')return {};if(name==='obsidian')return{Plugin,PluginSettingTab:class{},Modal,Notice:class{},TFile,TFolder,getLanguage:()=> 'en'};return original.call(this,name,...args);};
 const Bridge=require('../.test-build/main.cjs').default;
 const {BridgeSettings}=require('../.test-build/settings.cjs');
+const {audioIndexPath,indexedRecords}=require('../.test-build/audio.cjs');
 Module._load=original;
 const row={chat:'x@g.us',name:'Test',id:'1',timestamp:'2026-09-29T12:00:00.000Z',fromMe:false,sender:'Alice',text:'fixture'};
 test('declarative settings preserve connection actions and clean up their subscriptions',()=>{
@@ -63,4 +64,43 @@ test('audio import writes a binary, embeds it and maintains conversation index m
   await p.run(false);
   assert.equal(binaries.size,1);const text=[...contents.values()].join('\n');
   assert.match(text,/!\[\[/);assert.match(text,/WhatsApp Audio Index/);assert.match(text,/Conversation:/);assert.match(text,/Sender: Alice/);assert.match(text,/Sent: 2026/);
+});
+async function audioFixture(){
+  const fixture=setup(),{p}=fixture;p.settings.downloadAudio=true;
+  p.client.read=async()=>[{...row,mediaType:'audio',text:'[Audio]',timestamp:'2020-01-01T12:00:00.000Z'}];
+  p.client.downloadAudio=async()=>({data:Uint8Array.from([79,103,103]).buffer,extension:'.ogg'});
+  await p.run(false);p.settings.downloadAudio=false;p.settings.transcribeAudio=false;
+  p.client.read=async()=>{throw Error('must not query WhatsApp');};
+  p.client.downloadAudio=async()=>{throw Error('must not download');};
+  return fixture;
+}
+test('pending and all work on old downloaded audio with automatic transcription disabled',async()=>{
+  const{p,contents}=await audioFixture();let calls=0;
+  p.settings.transcriptionProvider='local';p.settings.whisperExecutable='C:\\faster-whisper-xxl.exe';
+  p.whisper={transcribe:async()=>{calls++;return 'Transcript '+calls;},cancel(){}};
+  await p.reprocessAudio(false);assert.equal(calls,1);
+  let records=indexedRecords(contents.get(audioIndexPath(p.settings)));assert.equal(records[0].transcript,'Transcript 1');
+  await p.reprocessAudio(false);assert.equal(calls,1);
+  await p.reprocessAudio(true);assert.equal(calls,2);
+  records=indexedRecords(contents.get(audioIndexPath(p.settings)));assert.equal(records[0].transcript,'Transcript 2');
+  assert.match(contents.get(records[0].note),/Transcript 2/);assert.doesNotMatch(contents.get(records[0].note),/Transcript 1/);
+  p.whisper.transcribe=async()=>{throw Error('model missing');};
+  await p.reprocessAudio(true);
+  records=indexedRecords(contents.get(audioIndexPath(p.settings)));assert.equal(records[0].transcript,'Transcript 2');assert.equal(records[0].status,'transcribed');
+  assert.match(p.lastResult,/1 failed/);assert.match(contents.get(records[0].note),/Transcript 2/);
+});
+test('missing files and invalid indexed paths do not trigger transcription',async()=>{
+  const{p,contents,binaries,files}=await audioFixture();let calls=0;
+  p.transcribeAudioData=async()=>{calls++;return 'not called';};
+  const binary=[...binaries.keys()][0];files.delete(binary);
+  await p.reprocessAudio(false);assert.equal(calls,0);assert.match(p.lastResult,/1 failed/);
+  const index=audioIndexPath(p.settings);contents.set(index,contents.get(index).replace(binary,'../outside.ogg'));
+  await p.reprocessAudio(false);assert.equal(calls,0);assert.match(p.lastResult,/1 failed/);
+});
+test('failed pending transcripts are retried and cancellation preserves index',async()=>{
+  const{p,contents}=await audioFixture();const index=audioIndexPath(p.settings);
+  p.transcribeAudioData=async()=>{throw Error('HTTP 429');};await p.reprocessAudio(false);assert.match(contents.get(index),/transcription_failed/);
+  const failed=contents.get(index);p.transcribeAudioData=async()=>{p.stopProcessing();throw Error('cancelled');};
+  await p.reprocessAudio(false);assert.equal(contents.get(index),failed);assert.match(p.lastResult,/Cancelled/);
+  p.transcribeAudioData=async()=> 'Recovered';await p.reprocessAudio(false);assert.match(contents.get(index),/Recovered/);
 });

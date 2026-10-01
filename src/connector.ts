@@ -3,6 +3,8 @@ import {execFile} from 'child_process';
 import {promises as fs} from 'fs';
 import {win32,posix} from 'path';
 import {COMPATIBLE_WACLI_VERSION} from './client';
+// Obsidian loads plugins through CommonJS. Native import() bypasses its Electron loader.
+import * as electron from 'electron';
 
 export const RELEASE_URL='https://github.com/openclaw/wacli/releases/tag/v0.19.0';
 export function assetName(platform=process.platform,arch=process.arch):string {
@@ -24,7 +26,9 @@ export function validExecutablePath(value:string,platform=process.platform):bool
 export async function selectedFilePath(file:File):Promise<string>{
   const legacy=(file as File & {path?:string}).path;
   if(legacy)return normalizeExecutablePath(legacy);
-  return normalizeExecutablePath((await import('electron')).webUtils.getPathForFile(file));
+  const path=electron.webUtils?.getPathForFile(file);
+  if(!path)throw new Error('The selected file has no accessible local path.');
+  return normalizeExecutablePath(path);
 }
 export async function checkExecutable(value:string,run:typeof execFile=execFile):Promise<string>{
   const path=normalizeExecutablePath(value);

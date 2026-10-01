@@ -41,7 +41,18 @@ Audio downloads are disabled by default. When enabled, the plugin retrieves each
 
 Each account has a stable `Audio Index.md` file. Entries record the conversation, chat ID, sender, sent time, file path, processing status, and transcript when available. A key combining the account, conversation, and message ID allows subsequent imports to update the same entry without duplicating it.
 
-Transcription is also disabled by default and requires audio downloads to be enabled. The current provider is the OpenAI API using `gpt-4o-mini-transcribe`. The API key is selected through Obsidian SecretStorage and is not stored in the plugin's `data.json`. Enabling transcription sends the audio file to OpenAI. Language selection supports automatic detection, Portuguese, and English.
+Automatic transcription is disabled by default and requires audio downloads to be enabled. Choose a **Transcription provider**:
+
+- **OpenAI** (the existing default): uses `gpt-4o-mini-transcribe`. Select an API key through Obsidian SecretStorage; it is not stored in `data.json`. Audio is uploaded to OpenAI and API charges may apply.
+- **Faster-Whisper-XXL (Windows)**: runs locally on CPU using INT8, without uploading audio to OpenAI. Select **Set up local Whisper**, open the official download page, save the Windows x86-64 Faster-Whisper-XXL archive in Downloads, and extract the **entire** package with a compatible extractor such as 7-Zip. Keep all extracted files together. Browse for, drag, or paste the path to `faster-whisper-xxl.exe`, then validate. Validation executes `--help` and checks the required command options. The plugin does not download, install, move, or update the program.
+
+The local program can download missing models from Hugging Face into its `_models` directory on first use. This requires internet access, disk space and time. The default is `medium`; smaller models reduce memory use, while larger models require more resources. Each local transcription has a one-hour timeout. The integration currently supports Windows only, even though upstream offers other builds. See the [upstream instructions](https://github.com/Purfview/whisper-standalone-win). Model quality and CPU performance should be tested on the target computer.
+
+Both providers support automatic language detection, Portuguese, and English. Upgrades retain OpenAI as the default, existing settings, downloaded audio, and transcripts.
+
+**Transcribe pending** processes downloaded files in the current account's `Audio Index.md` that have no successful transcript. **Reprocess all** also replaces successful transcripts, but only after a new transcription succeeds. Both buttons ask for confirmation, use the selected provider, and work even with automatic download/transcription disabled. They read the existing index regardless of the history window; they do not query WhatsApp or download audio again. Files absent from the index are not discovered automatically. Keep the configured account and destination folder consistent with the index you want to process.
+
+Results are saved to the index and matching message blocks without duplicating messages. A failed retry preserves the previous transcript. Missing files and processing errors appear in the index. **Stop processing** interrupts the local process; an active OpenAI request must finish before cancellation takes effect. Already completed results remain saved. The maximum audio size applies to reprocessing too.
 
 ## Features
 
@@ -69,7 +80,7 @@ Credentials and the local database are kept outside the vault to avoid syncing t
 
 Audio files pass through a system temporary directory before being copied into the vault; the plugin attempts to remove that directory after completion or failure. Notes and audio files in the vault are readable and subject to vault synchronization and access by other plugins. The plugin does not implement telemetry. Do not include credentials, databases, private audio, or real conversation notes in issue reports.
 
-Optional transcription sends audio to the OpenAI API and may incur usage charges. Review the provider's terms and privacy information before enabling it. The API key remains in SecretStorage. Message import works without this service.
+Optional OpenAI transcription sends audio to the API and may incur usage charges. Review the provider's terms and privacy information before enabling it. The API key remains in SecretStorage. Local transcription instead copies audio into a temporary directory and executes the selected Faster-Whisper-XXL binary without a shell; temporary audio and output are removed after completion or failure. The external program manages its own model downloads and cache. Message import works without either transcription provider.
 
 ## Development
 

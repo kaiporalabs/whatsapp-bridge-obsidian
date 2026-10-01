@@ -15,7 +15,9 @@ const {Collector,EventLines,collectorArgs}=require('../.test-build/collector.cjs
 const {defaults}=require('../.test-build/core.cjs');
 const Module=require('node:module');
 const load=Module._load;
-Module._load=function(name,...args){return name==='obsidian'?{Modal:class{}}:load.call(this,name,...args);};
+let resolvedFile;
+const electron={webUtils:{getPathForFile(file){resolvedFile=file;return file.fixturePath??'';}}};
+Module._load=function(name,...args){if(name==='electron')return electron;return name==='obsidian'?{Modal:class{}}:load.call(this,name,...args);};
 const {checkExecutable,assetName,normalizeExecutablePath,validExecutablePath,selectedFilePath}=require('../.test-build/connector.cjs');
 Module._load=load;
 test('external connector rejects archives and incompatible versions without changing the file',async()=>{
@@ -39,6 +41,16 @@ test('Windows copied paths normalize quotes without accepting arguments or other
 });
 test('picker and dropped file legacy paths use the same normalization',async()=>{
   assert.equal(await selectedFilePath({name:'wacli.exe',path:'"C:\\Downloads\\wacli.exe"'}),'C:\\Downloads\\wacli.exe');
+});
+test('modern picker and drop resolve the actual File through the CommonJS Electron module',async()=>{
+  for(const name of ['wacli.exe','faster-whisper-xxl.exe']){
+    const file={name,fixturePath:'C:\\Users\\Ana Silva\\Downloads\\'+name};
+    assert.equal(await selectedFilePath(file),file.fixturePath);assert.equal(resolvedFile,file);
+  }
+  await assert.rejects(selectedFilePath({name:'wacli.exe'}),/no accessible local path/);
+  const bundle=require('node:fs').readFileSync(require('node:path').join(__dirname,'../.test-build/connector.cjs'),'utf8');
+  assert.doesNotMatch(bundle,/import\(["']electron["']\)/);
+  assert.match(bundle,/require\(["']electron["']\)/);
 });
 
 test('PATH detection accepts only the pinned compatible wacli version',async()=>{

@@ -32,15 +32,35 @@ export function updateAudioIndex(existing:string,record:AudioRecord):string{
   const audio=record.path?`[[${record.path}]]`:'Unavailable';
   const block=`<!-- wa-audio-index:${record.key}:start -->\n## ${record.timestamp.replace('T',' ').replace('.000Z',' UTC')} — ${safe(record.chatName)}\n\n- Conversation: [[${note}|${safe(record.chatName)}]]\n- Chat ID: \`${safe(record.chat)}\`\n- Sender: ${safe(record.sender)}\n- Sent: ${record.timestamp}\n- Audio: ${audio}\n- Status: ${record.status}${error}${transcript}\n<!-- wa-audio-index:${record.key}:end -->`;
   const pattern=new RegExp(`<!-- wa-audio-index:${record.key}:start -->[\\s\\S]*?<!-- wa-audio-index:${record.key}:end -->`);
-  return pattern.test(title)?title.replace(pattern,block):`${title.trimEnd()}\n\n${block}\n`;
+  return pattern.test(title)?title.replace(pattern,()=>block):`${title.trimEnd()}\n\n${block}\n`;
+}
+// Read the existing Markdown format as well as newly created indexes. No wacli history query is needed.
+export function indexedRecords(content:string):AudioRecord[]{
+  const decode=(value:string)=>value.replace(/\\([\\`*_{}[\]()#!|~])/g,'$1').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&amp;/g,'&');
+  const records:AudioRecord[]=[],seen=new Set<string>();
+  for(const match of content.matchAll(/<!-- wa-audio-index:([a-f0-9]{64}):start -->\n([\s\S]*?)\n<!-- wa-audio-index:\1:end -->/g)){
+    const [,key,block]=match;
+    if(seen.has(key))continue;seen.add(key);
+    const conversation=block.match(/^- Conversation: \[\[([^|\]\n]+)\|([^\n]*)\]\]$/m);
+    const path=findIndexedAudio(match[0],key),timestamp=block.match(/^- Sent: (.+)$/m)?.[1]??'';
+    if(!conversation||!path||!Number.isFinite(Date.parse(timestamp)))continue;
+    records.push({key,path,note:conversation[1]+'.md',chatName:decode(conversation[2]),timestamp,
+      chat:decode(block.match(/^- Chat ID: `(.*)`$/m)?.[1]??''),sender:decode(block.match(/^- Sender: (.*)$/m)?.[1]??''),
+      status:hasTranscript(match[0],key)?'transcribed':'downloaded',transcript:indexedTranscript(match[0],key),error:''});
+  }
+  return records;
 }
 export function mergeAudioIntoNote(existing:string,s:Settings,m:Message,path:string,transcript:string):string{
-  const key=audioKey(s,m);const marker=`<!-- wa-bridge:${key} -->`;
+  return mergeAudioByKey(existing,audioKey(s,m),path,transcript);
+}
+export function mergeAudioByKey(existing:string,key:string,path:string,transcript:string):string{
+  if(!/^[a-f0-9]{64}$/.test(key))throw new Error('Invalid audio key.');
+  const marker=`<!-- wa-bridge:${key} -->`;
   if(!existing.includes(marker)||!path)return existing;
   const transcriptBlock=transcript?`\n> [!quote] Transcript\n${escapeText(transcript).split('\n').map(line=>`> ${line}`).join('\n')}\n`:'';
   const block=`<!-- wa-audio:${key}:start -->\n![[${path}]]${transcriptBlock}<!-- wa-audio:${key}:end -->`;
   const pattern=new RegExp(`<!-- wa-audio:${key}:start -->[\\s\\S]*?<!-- wa-audio:${key}:end -->`);
-  if(pattern.test(existing))return existing.replace(pattern,block);
+  if(pattern.test(existing))return existing.replace(pattern,()=>block);
   const position=existing.indexOf(marker)+marker.length;
   return `${existing.slice(0,position)}\n${block}${existing.slice(position)}`;
 }

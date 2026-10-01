@@ -4,6 +4,8 @@ import type WhatsAppBridge from './main';
 import {messages} from './i18n';
 import {toDataURL} from 'qrcode';
 import {confirmLogout} from './main';
+import {confirmReprocess} from './whisper-modal';
+import {WHISPER_MODELS} from './whisper';
 
 export class BridgeSettings extends PluginSettingTab {
   private refreshers=new Set<()=>void>();
@@ -19,6 +21,7 @@ export class BridgeSettings extends PluginSettingTab {
   }
   getSettingDefinitions():SettingDefinitionItem[]{
     const p=this.bridge,s=p.settings,t=messages(getLanguage());
+    const tr=(en:string,pt:string)=>getLanguage().startsWith('pt')?pt:en;
     const locked=()=>p.busyState||p.collector.state.running;
     const row=(name:string,desc:string,render:(setting:Setting)=>void|(()=>void)):SettingDefinitionItem=>({name,desc,render});
     const text=(key:'folder'|'groupFolder'|'personalFolder'|'audioFolder'|'ownName'|'executable'|'store'|'source',name:string,desc:string,disabled=()=>false)=>row(name,desc,setting=>{
@@ -63,13 +66,30 @@ export class BridgeSettings extends PluginSettingTab {
       }),
       toggle('autoCollect',t.auto,t.autoDesc),text('folder',t.destination,t.destinationDesc),text('groupFolder',t.groupFolder,t.groupFolderDesc),text('personalFolder',t.personalFolder,t.personalFolderDesc),number('interval',t.interval,t.intervalDesc,0,1440),
       row(t.audio,'',setting=>{setting.setHeading();}),toggle('downloadAudio',t.downloadAudio,t.downloadAudioDesc),text('audioFolder',t.audioFolder,t.audioFolderDesc,()=>!s.downloadAudio),toggle('transcribeAudio',t.transcribeAudio,t.transcribeAudioDesc,()=>!s.downloadAudio),
+      row(tr('Transcription provider','Provedor de transcrição'),tr('OpenAI sends audio to the cloud. Local Whisper runs on Windows CPU; the first use may download a model.','OpenAI envia o áudio à nuvem. Whisper local usa a CPU do Windows; o primeiro uso pode baixar um modelo.'),setting=>{
+        let refresh=()=>{};setting.addDropdown(input=>{input.addOption('openai','OpenAI').addOption('local','Faster-Whisper-XXL (Windows)').setValue(s.transcriptionProvider).onChange(value=>{void this.act(async()=>{s.transcriptionProvider=value;await p.save();});});refresh=()=>input.setDisabled(p.busyState);});return this.live(refresh);
+      }),
+      row(tr('Local Whisper executable','Executável Whisper local'),s.whisperExecutable||tr('Download and extract the complete Faster-Whisper-XXL package in Downloads.','Baixe e extraia o pacote completo Faster-Whisper-XXL em Downloads.'),setting=>{
+        let refresh=()=>{};setting.addButton(b=>{b.setButtonText(tr('Set up local Whisper','Configurar Whisper local')).onClick(()=>p.configureWhisper(()=>this.refresh()));refresh=()=>{b.setDisabled(p.busyState||s.transcriptionProvider!=='local'||process.platform!=='win32');setting.setDesc(s.whisperExecutable||tr('Windows only. Download and extract the complete package in Downloads.','Somente Windows. Baixe e extraia o pacote completo em Downloads.'));};});return this.live(refresh);
+      }),
+      row(tr('Local model','Modelo local'),tr('Medium is the default. Smaller models use less memory; larger models take more time and disk space. The program downloads missing models.','Medium é o padrão. Modelos menores usam menos memória; maiores exigem mais tempo e espaço. O programa baixa modelos ausentes.'),setting=>{
+        let refresh=()=>{};setting.addDropdown(input=>{for(const model of WHISPER_MODELS)input.addOption(model,model);input.setValue(s.whisperModel).onChange(value=>{void this.act(async()=>{s.whisperModel=value;await p.save();});});refresh=()=>input.setDisabled(p.busyState||s.transcriptionProvider!=='local');});return this.live(refresh);
+      }),
       row(t.openaiSecret,t.openaiSecretDesc,setting=>{
         setting.addComponent(el=>new SecretComponent(this.app,el).setValue(s.openaiSecret).onChange(value=>{void this.act(async()=>{s.openaiSecret=value??'';await p.save();});}));
-        return this.live(()=>setting.setDisabled(!s.downloadAudio||!s.transcribeAudio));
+        return this.live(()=>setting.setDisabled(p.busyState||s.transcriptionProvider!=='openai'));
       }),
       row(t.transcriptionLanguage,t.transcriptionLanguageDesc,setting=>{
-        let refresh=()=>{};setting.addDropdown(input=>{input.addOption('auto','Auto').addOption('pt','Português').addOption('en','English').setValue(s.transcriptionLanguage).onChange(value=>{void this.act(async()=>{s.transcriptionLanguage=value;await p.save();});});refresh=()=>input.setDisabled(!s.downloadAudio||!s.transcribeAudio);});return this.live(refresh);
+        let refresh=()=>{};setting.addDropdown(input=>{input.addOption('auto','Auto').addOption('pt','Português').addOption('en','English').setValue(s.transcriptionLanguage).onChange(value=>{void this.act(async()=>{s.transcriptionLanguage=value;await p.save();});});refresh=()=>input.setDisabled(p.busyState);});return this.live(refresh);
       }),number('audioMaxMB',t.audioMax,t.audioMaxDesc,1,100),{name:t.audioPrivacy},
+      row(tr('Previously downloaded audio','Áudios já baixados'),tr('Uses this account’s Audio Index, including older audio. No WhatsApp download is required. Applies the selected provider even when automatic transcription is off. Stop waits for an active OpenAI request; local processing is interrupted.','Usa o Audio Index desta conta, incluindo áudios antigos. Não baixa novamente do WhatsApp. Usa o provedor selecionado mesmo com transcrição automática desativada. Parar aguarda a requisição OpenAI ativa; o processamento local é interrompido.'),setting=>{
+        const refreshers:Array<()=>void>=[];
+        for(const all of [false,true])setting.addButton(b=>{b.setButtonText(all?tr('Reprocess all','Reprocessar todos'):tr('Transcribe pending','Transcrever pendentes')).onClick(()=>{
+          void confirmReprocess(this.app,all,s.transcriptionProvider==='local').then(confirmed=>{if(confirmed)void this.act(()=>p.reprocessAudio(all));});
+        });refreshers.push(()=>b.setDisabled(p.busyState));});
+        setting.addButton(b=>{b.setButtonText(tr('Stop processing','Parar processamento')).onClick(()=>p.stopProcessing());refreshers.push(()=>b.setDisabled(!p.busyState));});
+        return this.live(()=>{for(const refresh of refreshers)refresh();});
+      }),
       row(t.importing,p.lastResult,setting=>{
         setting.addButton(b=>b.setButtonText(t.importNow).setCta().onClick(()=>{void this.act(()=>p.run(false));})).addButton(b=>b.setButtonText(t.test).onClick(()=>{void this.act(()=>p.run(true));}));
         return this.live(()=>setting.setDesc(p.lastResult));

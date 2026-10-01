@@ -1,86 +1,56 @@
-# WhatsApp Bridge 0.4.1 — instalação e teste
+# WhatsApp Bridge 0.5.1 — teste no Windows
 
-Esta versão permite instalar o conector e parear pelo Obsidian. Não é necessário abrir terminal no fluxo normal. Comece em um vault de teste.
+Requer Obsidian 1.13.1 ou superior. Use um vault de teste e áudios sem dados privados. O pacote foi compilado e testado com simulações no Mac; a execução real do Faster-Whisper-XXL e a interface de seleção precisam ser validadas no Windows.
 
-## Instalação / atualização
+## Atualizar sem perder configurações
 
-1. Extraia `whatsapp-bridge-0.2.0.zip`.
-2. Copie `whatsapp-bridge` para `<vault>/.obsidian/plugins/`.
-3. Se estiver atualizando, desative o plugin antes de substituir `main.js`, `manifest.json` e `styles.css`; preserve `data.json` e suas notas.
-4. Reabra o Obsidian e habilite WhatsApp Bridge em Community plugins.
+1. Desative o plugin no Obsidian.
+2. Extraia `whatsapp-bridge-0.5.1.zip`.
+3. Copie apenas `main.js`, `manifest.json` e `styles.css` da pasta `whatsapp-bridge` para `<vault>/.obsidian/plugins/whatsapp-bridge/`.
+4. Preserve `data.json`, as notas, áudios, índice e credenciais. Reative o plugin.
+5. Confirme a versão 0.5.1 e que suas pastas e configurações anteriores foram mantidas. OpenAI continua sendo o provedor padrão.
 
-## Configurar em três passos
+Nesta correção, teste primeiro **Procurar** e arrastar o executável nas janelas de wacli e Whisper. O caminho completo deve aparecer no campo antes de clicar em **Validar e usar executável**. Se ainda falhar, informe a versão do instalador Electron em Ajuda → Sobre e o erro do console ao reproduzir, removendo dados privados.
 
-Abra Configurações → WhatsApp Bridge:
+Não é necessário parear novamente se a sessão existente funciona.
 
-2. **Mostrar QR code**: no celular, abra WhatsApp → Dispositivos conectados → Conectar dispositivo e escaneie o QR exibido. Isso cria um dispositivo vinculado próprio. Aguarde o estado Conectado; o QR desaparece e a coleta continua.
-3. **Importar agora**: confira as notas. Em instalações novas, a pasta sugerida é `WhatsApp` e a importação periódica usa intervalo de 1 minuto. Atualizações preservam a pasta anterior.
+## Testar Whisper local
 
-O plugin segue o idioma configurado no Obsidian: português é traduzido e qualquer outro idioma usa inglês. As pastas de grupos e conversas pessoais podem ser alteradas separadamente. Os padrões existentes `Grupos` e `Pessoais` são preservados.
+1. Abra Configurações → WhatsApp Bridge → Mensagens de áudio.
+2. Escolha **Faster-Whisper-XXL (Windows)** em **Provedor de transcrição**.
+3. Clique em **Configurar Whisper local**, depois em **Abrir página de download**.
+4. Na página oficial do Purfview, baixe o pacote **Faster-Whisper-XXL para Windows x86-64**, salvando em **Downloads**. O popup continua aberto.
+5. Extraia o pacote inteiro com um programa compatível com o formato (por exemplo, 7-Zip). Mantenha as subpastas e bibliotecas juntas; não mova só o EXE.
+6. Clique em **Procurar** e selecione `faster-whisper-xxl.exe`. Como alternativas, arraste esse arquivo para o popup ou use **Copiar como caminho** no Explorer e cole no campo. Caminhos com espaços e aspas devem funcionar.
+7. Clique em **Validar e usar executável**. A validação executa `--help`, verifica as opções necessárias e salva o caminho. Aguarde **Pronto** e feche o popup.
+8. Escolha o modelo (`medium` por padrão) e idioma. Para um teste mais leve, use `small`.
+9. Use **Transcrever pendentes**, leia a confirmação e continue. Confira a transcrição no `Audio Index.md` e na nota da conversa.
 
-Se houver um `wacli` 0.19.0 no PATH, o plugin o detecta e utiliza automaticamente. Outras versões não são aceitas como compatíveis e o instalador gerenciado continua disponível.
+O programa usa a CPU e pode baixar o modelo do Hugging Face no primeiro uso para sua pasta `_models`. Esse download pode ser grande e demorado. Reserve espaço em disco e conexão à internet. O plugin não envia esse áudio à OpenAI quando Whisper local está selecionado. O tempo limite é de uma hora por arquivo. Para novos áudios, habilite **Baixar mensagens de áudio** e **Transcrever áudios baixados**.
 
-O botão **Desconectar e apagar credenciais** pede confirmação, encerra o coletor, revoga o dispositivo vinculado e remove as credenciais da sessão local. As notas já importadas e o banco local de mensagens são preservados.
+## Testar reprocessamento com os dois provedores
 
-## Teste opcional de áudio
+- **Transcrever pendentes**: deve processar áudios já baixados sem transcrição concluída, inclusive os anteriores ao período de histórico. Repetir não deve transcrever os concluídos novamente.
+- **Reprocessar todos**: deve pedir confirmação e substituir a transcrição nos mesmos blocos, sem duplicar notas ou mensagens. Uma falha deve preservar o texto anterior.
+- Os botões usam o índice da conta e pasta de destino atuais, sem consultar WhatsApp ou baixar os áudios novamente. Funcionam mesmo com transcrição automática desativada. Arquivos fora do índice não são descobertos.
+- **Parar processamento**: interrompe o Whisper local. Na OpenAI, aguarda a requisição ativa; não inicia o próximo áudio. Resultados anteriores são preservados.
+- Para testar **OpenAI**, selecione esse provedor e uma chave pelo SecretStorage do Obsidian. A confirmação informa o envio do áudio à API e possível cobrança, inclusive nas repetições. Não é necessário configurar Whisper.
+- Confira falha de arquivo ausente e limite de tamanho. O índice deve registrar o erro e permitir tentar novamente.
 
-1. Confirme que **Baixar mensagens de áudio** inicia desligado após a atualização.
-2. Ative a opção e mantenha a transcrição desligada no primeiro teste.
-3. Receba um áudio recente e use **Importar agora**.
-4. Verifique o player na nota da conversa, o arquivo em `Media/Audio` e a entrada em `Audio Index.md` com conversa, remetente e horário.
-5. Execute a importação novamente e confirme que nem o arquivo nem a entrada são duplicados.
+## Conector WhatsApp
 
-Para testar transcrição, use Obsidian 1.13.1 ou mais recente, selecione uma chave da API OpenAI pelo SecretStorage e ative **Transcrever áudios baixados**. O áudio será enviado à OpenAI. Não use conversas privadas no primeiro teste.
+Se ainda não estiver configurado, use **Configurar conector**. Baixe wacli 0.19.0 pelo navegador em Downloads, extraia e selecione `wacli.exe` usando Procurar, arrastando ou colando o caminho. Clique em **Validar e usar executável**. A validação executa `--version`. Um wacli 0.19.0 compatível no PATH também é detectado quando não há executável configurado.
 
-Depois do primeiro pareamento, ative **Iniciar coletor ao abrir Obsidian** se desejar. Em aberturas posteriores, também é possível clicar **Iniciar**, sem escanear novamente. **Parar** encerra a coleta deste plugin e preserva o vínculo. A importação consulta o que já está na base, mesmo com coletor parado.
+Use **Mostrar QR code** e escaneie pelo WhatsApp no celular → Dispositivos conectados → Conectar dispositivo. Aguarde Conectado, depois use **Importar agora**. O coletor funciona enquanto Obsidian estiver aberto. **Parar** preserva o vínculo; **Desconectar e apagar credenciais** pede confirmação e executa o logout, preservando notas e o banco de mensagens.
 
-O coletor gerenciado termina quando o plugin é desativado ou Obsidian é fechado. Não é um serviço permanente do Windows. Se já havia `wacli sync --follow` aberto no terminal, encerre-o antes de usar a gestão integrada.
+O plugin não baixa, instala, move, atualiza nem altera permissões dos executáveis externos. Ele inicia apenas os programas configurados, sem shell. Mantenha-os nos locais selecionados. Não selecione LocalState do WhatsApp Desktop como pasta de dados.
 
-## Onde ficam os dados
+## Dados e privacidade
 
-- Windows: `%LOCALAPPDATA%/WhatsAppBridge/`.
-- macOS: `~/Library/Application Support/WhatsAppBridge/`.
-- Linux: `$XDG_DATA_HOME/whatsapp-bridge/` ou `~/.local/share/whatsapp-bridge/`.
+Credenciais e banco do wacli ficam fora do vault: por padrão `~/.wacli` no Windows/Mac e `~/.local/state/wacli` no Linux, ou o caminho configurado. Pastas de versões anteriores são preservadas. Não copie essas pastas para o vault nem as envie para suporte.
 
-O binário fica em `bin/0.19.0`; uma nova sessão usa `accounts/principal`. Uma base previamente configurada é preservada, inclusive a base padrão do wacli se já existir. Não copie estas pastas para o vault nem as envie para suporte.
-
-Opções avançadas permitem executável manual, pasta de dados, identificador de conta, histórico e filtros. Para outra conta, use **outra pasta de dados e outro identificador**, sempre com coletor parado. Não selecione LocalState do aplicativo WhatsApp Desktop.
-
-## Roteiro de validação
-
-- Instalar pelo botão; o estado deve indicar instalação concluída.
-- Exibir QR, fechar/reabrir configurações e verificar que o QR ainda é exibido enquanto válido.
-- Parear, aguardar Conectado, importar uma mensagem recebida e uma enviada.
-- Conferir grupo, conversa pessoal, acentos, emoji e horários UTC.
-- Repetir importação e reiniciar Obsidian: nenhuma duplicação.
-- Parar/iniciar coletor: nenhum segundo processo concorrente.
-- Ativar iniciar ao abrir, fechar e reabrir Obsidian: coleta deve retomar sem novo QR.
-- Desconectar internet e retomar: conferir estado e reconexão.
-- Cancelar pareamento via Parar e iniciar novamente: novo QR, sem processo anterior.
-- Atualizar o plugin mantendo `data.json` e notas.
-
-## Erros e limites
-
-Falha de download/checksum: tente novamente; o arquivo não é instalado se divergir do hash fixado. ARM64 Windows não tem binário nativo nesta release e recebe orientação para configuração manual; não há seleção silenciosa de outra arquitetura. Sistemas de segurança podem impedir a execução de um binário; o plugin não altera essas proteções.
-
-Vínculo revogado pelo celular: pare a coleta. Para parear novamente nesta versão, escolha uma pasta nova nas opções avançadas e use Mostrar QR code; mantenha o identificador da conta se for a mesma conta. Não há botão de logout que apague credenciais nesta versão.
-
-Uma janela com 10.000 mensagens aborta antes de escrever; diminua os dias. Histórico antigo depende do que o WhatsApp disponibiliza. Mídia é apenas indicada; edições e exclusões posteriores não atualizam notas já importadas. Mensagens atrasadas são acrescentadas ao fim. Não remova os comentários wa-bridge das notas.
+OpenAI recebe o áudio somente quando selecionada para transcrição. Sua chave permanece no SecretStorage. Whisper local recebe uma cópia temporária do áudio, e o plugin remove essa cópia e a saída ao terminar ou falhar. Os modelos são gerenciados pelo programa externo. Áudios, notas e transcrições salvos no vault ficam sujeitos à sincronização e aos outros plugins. Não há telemetria implementada pelo plugin.
 
 ## Feedback
 
-Envie versões do Windows, Obsidian e plugin, a etapa que falhou e o texto do estado. Não envie QR code, bancos, credenciais ou mensagens. O download/extração dos arquivos oficiais Mac e Windows foi verificado no Mac; o pareamento real e a execução Windows ainda precisam deste piloto.
-
-## Configurar o conector
-
-É necessária uma conta WhatsApp. Nas configurações, clique em **Configurar conector**. No popup, abra a página oficial do wacli 0.19.0, baixe o arquivo indicado para sua plataforma e salve em **Downloads**. Extraia o arquivo (no Windows: botão direito → Extrair tudo). Arraste o executável extraído `wacli.exe` (Windows) ou `wacli` (Mac/Linux) para o popup; também é possível colar seu caminho completo. Clique em **Validar e usar executável**. A janela permanece aberta durante o download e mostra o resultado da validação. Feche-a e clique em **Mostrar QR code** para parear.
-
-A validação executa `wacli --version`; somente a versão 0.19.0 é aceita nesse fluxo. O plugin não baixa, instala, move, altera permissões ou atualiza dependências. Mantenha o executável no local selecionado. Instalações e sessões configuradas em versões anteriores continuam sendo usadas. Se o sistema bloquear a execução, siga as instruções oficiais do wacli para sua plataforma.
-
-## Contas, rede e arquivos externos
-
-O wacli é um conector independente e não oficial. O navegador acessa GitHub para baixar o conector; o wacli acessa WhatsApp para pareamento, sincronização e download opcional de áudio. As credenciais e a base local ficam fora do vault para evitar que sejam sincronizadas junto às notas: por padrão, `~/.wacli` em Mac/Windows e `~/.local/state/wacli` no Linux, ou o caminho configurado pelo usuário. Versões anteriores podem usar `WhatsAppBridge/accounts` em LocalAppData (Windows), Library/Application Support (Mac), ou `whatsapp-bridge/accounts` em XDG_DATA_HOME/`~/.local/share` (Linux). Esses caminhos são preservados.
-
-Áudios passam por uma pasta temporária do sistema antes de serem copiados para o vault; o plugin tenta removê-la ao concluir ou falhar. As notas e os áudios no vault ficam sujeitos à sincronização e aos demais plugins. Não há telemetria implementada pelo plugin. Não compartilhe credenciais, bancos ou áudios privados em relatos de erro.
-
-A transcrição é opcional e desativada por padrão. Ela envia o arquivo de áudio à API OpenAI e exige uma conta, chave de API e cobrança conforme o uso pelo provedor. Importar mensagens não exige OpenAI. A chave fica no SecretStorage; o recurso requer Obsidian 1.13.1. Consulte as condições e a privacidade do provedor antes de ativar.
+Informe versão do Windows, Obsidian e plugin, modelo escolhido, etapa que falhou e mensagem de erro. Confirme especialmente seleção pelo botão, arrastar, caminho com espaços, primeira transcrição, reprocessamento e cancelamento. Não envie QR code, bancos, credenciais ou áudios privados.

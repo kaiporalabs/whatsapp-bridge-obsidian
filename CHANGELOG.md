@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.5.1
+
+- Fixes Electron loading for file path resolution: uses Obsidian's CommonJS module loader instead of native dynamic import.
+- Applies to both Browse and file drops in the wacli and local Whisper setup windows; preserves legacy file paths and manual path entry.
+- Adds regression coverage for files without the legacy `path` field and verifies the bundled Electron import. Native Windows verification remains required.
+
+## 0.5.0
+
+- Adds optional local Faster-Whisper-XXL transcription on Windows alongside OpenAI, preserving existing settings and defaults.
+- Adds external download guidance, executable browsing and drag-and-drop validation; the plugin does not install the dependency.
+- Adds local model selection and explains first-use model downloads, CPU processing and OpenAI upload costs.
+- Adds confirmed pending/all reprocessing of already indexed downloads, independent of the import history window and automatic transcription setting.
+- Preserves successful transcripts on retry failures, saves progress per file, and supports stopping local transcription.
+- Fixes literal dollar sequences in transcript replacements and adds regression tests for local execution, cleanup, cancellation and legacy indexes.
+- Native Faster-Whisper-XXL execution and the picker still require testing in Windows Obsidian.
+
 ## 0.4.4
 
 - Accepts quoted paths copied from Windows Explorer and saves the normalized executable path.

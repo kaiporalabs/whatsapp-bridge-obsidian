@@ -1,5 +1,8 @@
 import {Plugin, Setting, Notice, TFile, TFolder, App, Modal, getLanguage} from 'obsidian';
-import {defaults, Settings, Message, validate, notePath, mergeNote, upgradeSettings, readSavedSettings} from './core';
+import {defaults, Settings, Message, validate, notePath, mergeNote, upgradeSettings, readSavedSettings,folderPath} from './core';
+import {LocalWhisper} from './whisper';
+import {WhisperModal} from './whisper-modal';
+import {indexedRecords,mergeAudioByKey} from './audio';
 import {WacliClient, storeDirectory, findCompatibleExecutable} from './client';
 import {Collector} from './collector';
 import {ConnectorModal} from './connector';
@@ -12,6 +15,7 @@ import {audioIndexPath,audioKey,deterministicAudioPath,findIndexedAudio,hasTrans
 export default class WhatsAppBridge extends Plugin {
   settings: Settings = {...defaults};
   private client = new WacliClient();
+  private whisper = new LocalWhisper();
   private busy = false;
   collector = new Collector(getLanguage().toLowerCase().startsWith('pt')?'pt':'en');
   installing = false;
@@ -35,11 +39,68 @@ export default class WhatsAppBridge extends Plugin {
     this.addRibbonIcon('messages-square',this.text('Import WhatsApp','Importar WhatsApp'),()=>void this.run(false));
     this.addCommand({id:'import',name:this.text('Import messages','Importar mensagens'),callback:()=>void this.run(false)});
     this.addCommand({id:'test',name:this.text('Test local read','Testar leitura local'),callback:()=>void this.run(true)});
-    this.addCommand({id:'stop',name:this.text('Stop import','Parar importação'),callback:()=>{this.stopped=true;this.client.cancel();}});
+    this.addCommand({id:'stop',name:this.text('Stop import or transcription','Parar importação ou transcrição'),callback:()=>this.stopProcessing()});
     this.restartTimer();
     if(this.settings.autoCollect) { try {this.collector.start({...this.settings},'sync');} catch {this.lastResult=this.text('Could not start the collector automatically. Check the settings.','Não foi possível iniciar o coletor automaticamente. Verifique as configurações.');} }
   }
-  onunload() { this.unloaded=true; this.collector.dispose(); this.stopped=true; this.client.cancel(); if(this.timer!==null)window.clearInterval(this.timer); }
+  onunload() { this.unloaded=true; this.collector.dispose(); this.stopProcessing(); if(this.timer!==null)window.clearInterval(this.timer); }
+  stopProcessing(){this.stopped=true;this.client.cancel();this.whisper.cancel();}
+  configureWhisper(refresh:()=>void){
+    new WhisperModal(this.app,async path=>{
+      if(this.unloaded||this.busy)throw new Error(this.text('Wait for the current operation.','Aguarde a operação atual.'));
+      const previous=this.settings.whisperExecutable;this.settings.whisperExecutable=path;
+      try{await this.save();}catch(error){this.settings.whisperExecutable=previous;throw error;}
+      refresh();
+    }).open();
+  }
+  private async transcribeAudioData(data:ArrayBuffer,path:string,s:Settings):Promise<string>{
+    if(this.stopped)throw new Error(this.text('Cancelled.','Cancelado.'));
+    if(!data.byteLength||data.byteLength>s.audioMaxMB*1024*1024)throw new Error(this.text('Audio is empty or exceeds the configured size limit.','Áudio vazio ou acima do limite configurado.'));
+    const filename=path.split('/').pop()??'audio.ogg';
+    let result:string;
+    if(s.transcriptionProvider==='local')result=await this.whisper.transcribe(data,filename,s.whisperExecutable,s.whisperModel,s.transcriptionLanguage);
+    else if(s.transcriptionProvider==='openai')result=await transcribe(data,filename,this.app.secretStorage?.getSecret(s.openaiSecret)??'',s.transcriptionModel,s.transcriptionLanguage);
+    else throw new Error('Unknown transcription provider / Provedor de transcrição desconhecido.');
+    if(this.stopped)throw new Error(this.text('Cancelled.','Cancelado.'));
+    return result;
+  }
+  async reprocessAudio(all:boolean){
+    if(this.busy){new Notice(this.text('An operation is already running.','Já existe uma operação em andamento.'));return;}
+    this.busy=true;this.stopped=false;const s={...this.settings};
+    let done=0,failed=0,skipped=0;
+    try{
+      validate(s);
+      const file=this.app.vault.getAbstractFileByPath(audioIndexPath(s));
+      if(!(file instanceof TFile))throw new Error(this.text('No audio index for this account and destination folder.','Não há índice de áudios para esta conta e pasta de destino.'));
+      const records=indexedRecords(await this.app.vault.read(file));
+      for(const record of records){
+        if(this.stopped)break;
+        if(!all&&record.status==='transcribed'&&record.transcript){skipped++;continue;}
+        const previous={...record};
+        try{
+          // Index files can be edited. Only process vault-relative paths and the linked message block.
+          folderPath(record.path);folderPath(record.note);
+          const audio=this.app.vault.getAbstractFileByPath(record.path);
+          if(!(audio instanceof TFile))throw new Error(this.text('Downloaded audio not found.','Áudio baixado não encontrado.'));
+          if(audio.stat?.size>s.audioMaxMB*1024*1024)throw new Error(this.text('Audio exceeds the size limit.','Áudio acima do limite de tamanho.'));
+          this.status.setText(this.text(`WA Bridge · transcribing ${done+failed+1}`,`WA Bridge · transcrevendo ${done+failed+1}`));
+          record.transcript=await this.transcribeAudioData(await this.app.vault.readBinary(audio),record.path,s);
+          const note=this.app.vault.getAbstractFileByPath(record.note);
+          if(note instanceof TFile)await this.app.vault.process(note,content=>mergeAudioByKey(content,record.key,record.path,record.transcript));
+          record.status='transcribed';record.error='';done++;
+        }catch(error){
+          if(this.stopped)break;
+          Object.assign(record,previous);failed++;
+          if(record.status!=='transcribed')record.status='transcription_failed';
+          record.error=error instanceof Error?error.message:'Transcription failed.';
+        }
+        // Persist each result; merge into the latest index so unrelated edits survive.
+        await this.app.vault.process(file,content=>updateAudioIndex(content,record));
+      }
+      this.lastResult=this.text(`${done} transcribed, ${failed} failed, ${skipped} already transcribed.`,`${done} transcrito(s), ${failed} falha(s), ${skipped} já transcrito(s).`)+(this.stopped?this.text(' Cancelled.',' Cancelado.'):'');
+    }catch(error){this.lastResult=error instanceof Error?error.message:'Transcription failed.';}
+    finally{this.busy=false;this.status.setText('WA Bridge · '+this.lastResult);if(!this.unloaded)new Notice(this.lastResult,10000);}
+  }
   configureConnector(refresh:()=>void) {
     new ConnectorModal(this.app,async path=>{
       if(this.unloaded||this.busy||this.collector.state.running)throw new Error(this.text('Stop the collector and wait for the current operation.','Pare o coletor e aguarde a operação atual.'));
@@ -110,10 +171,9 @@ export default class WhatsAppBridge extends Plugin {
         }
         if(alreadyTranscribed){transcriptText=indexedTranscript(index,key);status='transcribed';}
         else if(s.transcribeAudio){
-          const secret=this.app.secretStorage?.getSecret(s.openaiSecret)??'';
           if(!data){const file=this.app.vault.getAbstractFileByPath(path);if(file instanceof TFile)data=await this.app.vault.readBinary(file);}
           if(!data)throw new Error('Downloaded audio could not be read.');
-          transcriptText=await transcribe(data,path.split('/').pop()??'audio.ogg',secret,s.transcriptionModel,s.transcriptionLanguage);
+          transcriptText=await this.transcribeAudioData(data,path,s);
           status='transcribed';transcribed++;
         }
       }catch(e){

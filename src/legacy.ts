@@ -4,7 +4,7 @@ export interface LegacyPluginData{dbPathOverride:string;targetFolder:string;grou
 export function parseLegacyPluginData(value:unknown):LegacyPluginData{
   if(!isRecord(value)||!isRecord(value.chats))throw new Error('WhatsApp Local Sync data.json has an incompatible format.');
   const chats=parseLegacyChats(value.chats);if(!Object.keys(chats).length)throw new Error('WhatsApp Local Sync has no conversation state to adopt.');
-  const text=(key:string,fallback:string)=>typeof value[key]==='string'?value[key] as string:fallback;
+  const text=(key:string,fallback:string)=>{const candidate=value[key];return typeof candidate==='string'?candidate:fallback;};
   const number=(key:string,fallback:number)=>Number.isFinite(value[key])?Number(value[key]):fallback;
   return{dbPathOverride:text('dbPathOverride',''),targetFolder:text('targetFolder','11-Whatsapp'),groupsSubfolder:text('groupsSubfolder','Groups'),personalSubfolder:text('personalSubfolder','Personal'),syncGroups:value.syncGroups!==false,syncPersonal:value.syncPersonal!==false,maxDaysBack:number('maxDaysBack',30),ownName:text('ownName','Me'),syncIntervalMinutes:number('syncIntervalMinutes',30),chats,lastSync:text('lastSync','')};
 }

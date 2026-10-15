@@ -1,10 +1,10 @@
-# WhatsApp Bridge 0.9.0 — teste no macOS
+# WhatsApp Bridge 0.9.1 — teste no macOS
 
 Requer Obsidian 1.13.1 ou superior. Use um vault de teste e um áudio sem dados privados. Não é necessário instalar nada no Mac de quem apenas desenvolve ou envia o pacote.
 
 ## Atualizar
 
-Desative o plugin, extraia `whatsapp-bridge-0.9.0.zip` e substitua apenas `main.js`, `manifest.json` e `styles.css` em `<vault>/.obsidian/plugins/whatsapp-bridge/`. Preserve `data.json`, as notas, mídias, índices e credenciais. Reative o plugin e confirme a versão 0.9.0.
+Desative o plugin e substitua apenas os assets `main.js`, `manifest.json` e `styles.css` da release 0.9.1 em `<vault>/.obsidian/plugins/whatsapp-bridge/`. Preserve `data.json`, as notas, mídias, índices e credenciais. Reative o plugin e confirme a versão 0.9.1.
 
 ## Banco local do WhatsApp
 

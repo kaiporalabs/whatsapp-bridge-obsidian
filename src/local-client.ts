@@ -20,7 +20,6 @@ export function resolveLocalDatabase(s:Settings):string{
   }
   throw new Error('ChatStorage.sqlite was not found or is not readable. Open WhatsApp Desktop once or configure its full path.');
 }
-function sqliteString(value:string){return `'${value.replace(/'/g,"''")}'`;}
 function query(after:string,limit:number,mediaOnly=false){
   const unix=Math.floor(new Date(after).getTime()/1000);
   if(!Number.isFinite(unix))throw new Error('Invalid history date.');
@@ -44,7 +43,11 @@ export class LocalDatabaseClient{
       });
     });
     let rows:Row[];
-    try{const value=output.trim()?JSON.parse(output):[];if(!Array.isArray(value))throw new Error();rows=value;}catch{throw new Error('The installed sqlite3 returned an incompatible response.');}
+    try{
+      const value:unknown=output.trim()?(JSON.parse(output) as unknown):[];
+      if(!Array.isArray(value)||!value.every((item):item is Row=>typeof item==='object'&&item!==null&&!Array.isArray(item)))throw new Error();
+      rows=value;
+    }catch{throw new Error('The installed sqlite3 returned an incompatible response.');}
     if(rows.length>=limit&&limit===LIMIT)throw new Error('The window reached 10,000 messages. No note was changed. Reduce the history range.');
     return rows.map(row=>{
       const timestamp=String(row.timestamp??'');if(!row.chat||!row.id||!Number.isFinite(Date.parse(timestamp)))throw new Error('The WhatsApp database schema is incompatible with this version.');

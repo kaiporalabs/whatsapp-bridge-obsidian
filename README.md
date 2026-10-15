@@ -1,6 +1,6 @@
 # WhatsApp Bridge
 
-An independent Obsidian desktop plugin, currently in beta **0.9.0**. Imports messages and optional media into Markdown notes from **wacli** or the local WhatsApp Desktop database on macOS. It can adopt the note paths and incremental state created by WhatsApp Local Sync.
+An independent Obsidian desktop plugin, currently in beta **0.9.1**. Imports messages and optional media into Markdown notes from **wacli** or the local WhatsApp Desktop database on macOS. It can adopt the note paths and incremental state created by WhatsApp Local Sync.
 
 ## Requirements
 
@@ -10,7 +10,7 @@ An independent Obsidian desktop plugin, currently in beta **0.9.0**. Imports mes
 
 ## Install the plugin
 
-The ZIP generated in `dist` contains a `whatsapp-bridge` folder with `main.js`, `manifest.json`, and `styles.css`. Copy this folder into `<vault>/.obsidian/plugins/` and enable the plugin under **Community plugins**. Node.js is not required to use the packaged plugin.
+GitHub releases attach `main.js`, `manifest.json`, and `styles.css` directly for Obsidian. For manual installation, place those three files in `<vault>/.obsidian/plugins/whatsapp-bridge/` and enable the plugin under **Community plugins**. Node.js is not required to use the plugin.
 
 See [TESTE-WINDOWS.md](TESTE-WINDOWS.md) for the Windows installation and testing guide, currently available in Portuguese.
 

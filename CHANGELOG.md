@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.9.1
+
+- Publishes `main.js`, `manifest.json` and `styles.css` as direct GitHub Release assets required by Obsidian.
+- Removes unsupported ZIP and checksum assets from the release workflow.
+- Removes a redundant type assertion and an unused SQLite string helper.
+- Validates SQLite JSON rows as unknown objects before assigning them to the internal row type.
+- Makes settings callbacks return `void` explicitly to satisfy Obsidian's lint rules without changing UI behavior.
+
 ## 0.9.0
 
 - Adds opt-in import for images, videos, documents and stickers from wacli and the local macOS WhatsApp cache.

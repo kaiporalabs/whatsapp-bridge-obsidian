@@ -2,8 +2,11 @@ import {Plugin, Setting, Notice, TFile, TFolder, App, Modal, getLanguage} from '
 import {defaults, Settings, Message, validate, notePath, mergeNote, upgradeSettings, readSavedSettings,folderPath} from './core';
 import {LocalWhisper} from './whisper';
 import {WhisperModal} from './whisper-modal';
+import {MacWhisper} from './whisper-mac';
+import {MacWhisperModal} from './whisper-mac-modal';
 import {indexedRecords,mergeAudioByKey} from './audio';
 import {WacliClient, storeDirectory, findCompatibleExecutable} from './client';
+import {LocalDatabaseClient,resolveLocalDatabase} from './local-client';
 import {Collector} from './collector';
 import {ConnectorModal} from './connector';
 import {existsSync} from 'fs';
@@ -11,11 +14,15 @@ import {join} from 'path';
 import {messages} from './i18n';
 import {BridgeSettings} from './settings';
 import {audioIndexPath,audioKey,deterministicAudioPath,findIndexedAudio,hasTranscript,indexedTranscript,isAudio,mergeAudioIntoNote,transcribe,updateAudioIndex,AudioRecord} from './audio';
+import {adoptLegacySettings,legacyIndex,legacyIndexPath,mergeLegacyNote,parseLegacyPluginData} from './legacy';
+import {deterministicMediaPath,findIndexedMedia,mediaEnabled,mediaIndexPath,mediaKey,mediaKind,mergeMediaIntoNote,updateMediaIndex,MediaRecord} from './media';
 
 export default class WhatsAppBridge extends Plugin {
   settings: Settings = {...defaults};
   private client = new WacliClient();
+  private localClient = new LocalDatabaseClient();
   private whisper = new LocalWhisper();
+  private macWhisper = new MacWhisper();
   private busy = false;
   collector = new Collector(getLanguage().toLowerCase().startsWith('pt')?'pt':'en');
   installing = false;
@@ -30,7 +37,7 @@ export default class WhatsAppBridge extends Plugin {
     const stored:unknown = await this.loadData();
     const previous=readSavedSettings(stored);
     this.settings = upgradeSettings(previous,getLanguage().toLowerCase().startsWith('pt'));
-    if(!this.settings.executable){
+    if(this.settings.messageSource==='wacli'&&!this.settings.executable){
       const detected=await findCompatibleExecutable();
       if(detected){this.settings.executable=detected;await this.save();}
     }
@@ -41,11 +48,20 @@ export default class WhatsAppBridge extends Plugin {
     this.addCommand({id:'test',name:this.text('Test local read','Testar leitura local'),callback:()=>void this.run(true)});
     this.addCommand({id:'stop',name:this.text('Stop import or transcription','Parar importação ou transcrição'),callback:()=>this.stopProcessing()});
     this.restartTimer();
-    if(this.settings.autoCollect) { try {this.collector.start({...this.settings},'sync');} catch {this.lastResult=this.text('Could not start the collector automatically. Check the settings.','Não foi possível iniciar o coletor automaticamente. Verifique as configurações.');} }
+    if(this.settings.messageSource==='wacli'&&this.settings.autoCollect) { try {this.collector.start({...this.settings},'sync');} catch {this.lastResult=this.text('Could not start the collector automatically. Check the settings.','Não foi possível iniciar o coletor automaticamente. Verifique as configurações.');} }
   }
   onunload() { this.unloaded=true; this.collector.dispose(); this.stopProcessing(); if(this.timer!==null)window.clearInterval(this.timer); }
-  stopProcessing(){this.stopped=true;this.client.cancel();this.whisper.cancel();}
+  stopProcessing(){this.stopped=true;this.client.cancel();this.localClient.cancel();this.whisper.cancel();this.macWhisper.cancel();}
+  private sourceClient(s:Settings){return s.messageSource==='local-database'?this.localClient:this.client;}
   configureWhisper(refresh:()=>void){
+    if(process.platform==='darwin'){
+      new MacWhisperModal(this.app,this.settings,async config=>{
+        if(this.unloaded||this.busy)throw new Error(this.text('Wait for the current operation.','Aguarde a operação atual.'));
+        const previous={macWhisperExecutable:this.settings.macWhisperExecutable,macWhisperModel:this.settings.macWhisperModel,macFfmpegExecutable:this.settings.macFfmpegExecutable};
+        Object.assign(this.settings,config);
+        try{await this.save();}catch(error){Object.assign(this.settings,previous);throw error;}refresh();
+      }).open();return;
+    }
     new WhisperModal(this.app,async path=>{
       if(this.unloaded||this.busy)throw new Error(this.text('Wait for the current operation.','Aguarde a operação atual.'));
       const previous=this.settings.whisperExecutable;this.settings.whisperExecutable=path;
@@ -58,7 +74,8 @@ export default class WhatsAppBridge extends Plugin {
     if(!data.byteLength||data.byteLength>s.audioMaxMB*1024*1024)throw new Error(this.text('Audio is empty or exceeds the configured size limit.','Áudio vazio ou acima do limite configurado.'));
     const filename=path.split('/').pop()??'audio.ogg';
     let result:string;
-    if(s.transcriptionProvider==='local')result=await this.whisper.transcribe(data,filename,s.whisperExecutable,s.whisperModel,s.transcriptionLanguage);
+    if(s.transcriptionProvider==='local'&&process.platform==='darwin')result=await this.macWhisper.transcribe(data,s,s.transcriptionLanguage);
+    else if(s.transcriptionProvider==='local')result=await this.whisper.transcribe(data,filename,s.whisperExecutable,s.whisperModel,s.transcriptionLanguage);
     else if(s.transcriptionProvider==='openai')result=await transcribe(data,filename,this.app.secretStorage?.getSecret(s.openaiSecret)??'',s.transcriptionModel,s.transcriptionLanguage);
     else throw new Error('Unknown transcription provider / Provedor de transcrição desconhecido.');
     if(this.stopped)throw new Error(this.text('Cancelled.','Cancelado.'));
@@ -111,11 +128,13 @@ export default class WhatsAppBridge extends Plugin {
     }).open();
   }
   startCollector(mode:'auth'|'sync') {
+    if(this.settings.messageSource!=='wacli')throw new Error(this.text('The collector is only used with wacli.','O coletor é usado somente com wacli.'));
     if(this.installing || this.busy)throw new Error('Aguarde a operação atual.');
     validate(this.settings);
     this.collector.start({...this.settings},mode);
   }
   async logoutWhatsApp(){
+    if(this.settings.messageSource!=='wacli')throw new Error(this.text('Local database mode does not store credentials.','O modo de banco local não armazena credenciais.'));
     if(this.installing||this.busy)throw new Error(this.text('Wait for the current operation to finish.','Aguarde a operação atual.'));
     this.busy=true;
     try{
@@ -128,12 +147,24 @@ export default class WhatsAppBridge extends Plugin {
     }finally{this.busy=false;}
   }
   async save() { await this.saveData({settings:this.settings}); }
+  async adoptLocalSync(){
+    if(this.busy||this.collector.state.running)throw new Error(this.text('Stop current operations first.','Pare as operações atuais primeiro.'));
+    const path=`${this.app.vault.configDir}/plugins/whatsapp-local-sync/data.json`;
+    let raw:string;try{raw=await this.app.vault.adapter.read(path);}catch{throw new Error(this.text('WhatsApp Local Sync data.json was not found in this vault. Keep the old plugin folder until adoption is complete.','O data.json do WhatsApp Local Sync não foi encontrado neste vault. Mantenha a pasta do plugin antigo até concluir a adoção.'));}
+    let value:unknown;try{value=JSON.parse(raw);}catch{throw new Error('WhatsApp Local Sync data.json is not valid JSON.');}
+    const data=parseLegacyPluginData(value);adoptLegacySettings(this.settings,data);this.collector.stop();await this.save();this.restartTimer();
+    this.lastResult=this.text(`Adopted ${Object.keys(data.chats).length} conversations. Existing text cursors and note paths will be continued.`,`${Object.keys(data.chats).length} conversas adotadas. Os cursores de texto e caminhos existentes terão continuidade.`);
+    new Notice(this.lastResult,10000);
+  }
   restartTimer() {
     if(this.timer!==null) window.clearInterval(this.timer);
     this.timer=null;
     if(Number.isInteger(this.settings.interval)&&this.settings.interval>0&&this.settings.interval<=1440) {
       this.timer=window.setInterval(()=>{
-        try {if(!existsSync(join(storeDirectory(this.settings),'wacli.db')))return;}catch{return;}
+        try {
+          if(this.settings.messageSource==='wacli'&&!existsSync(join(storeDirectory(this.settings),'wacli.db')))return;
+          if(this.settings.messageSource==='local-database')resolveLocalDatabase(this.settings);
+        }catch{return;}
         void this.run(false);
       },this.settings.interval*60000);
       this.registerInterval(this.timer);
@@ -163,7 +194,7 @@ export default class WhatsAppBridge extends Plugin {
         const existing=path?this.app.vault.getAbstractFileByPath(path):null;
         if(existing instanceof TFile){if(s.transcribeAudio&&!alreadyTranscribed)data=await this.app.vault.readBinary(existing);}
         else{
-          const result=await this.client.downloadAudio(s,m.chat,m.id,s.audioMaxMB*1024*1024);data=result.data;extension=result.extension;
+          const result=await this.sourceClient(s).downloadAudio(s,m,s.audioMaxMB*1024*1024);data=result.data;extension=result.extension;
           path=deterministicAudioPath(s,m,extension);await this.folders(path);
           const occupied=this.app.vault.getAbstractFileByPath(path);
           if(!occupied)await this.app.vault.createBinary(path,data);else if(!(occupied instanceof TFile))throw new Error('Audio destination is occupied by a folder.');
@@ -189,6 +220,41 @@ export default class WhatsAppBridge extends Plugin {
     if(changed){await this.folders(indexPath);if(indexFile instanceof TFile)await this.app.vault.process(indexFile,()=>index);else await this.app.vault.create(indexPath,index);}
     return{downloaded,transcribed,failed};
   }
+  private async processMedia(rows:Message[],s:Settings){
+    if(!s.downloadImages&&!s.downloadVideos&&!s.downloadDocuments&&!s.downloadStickers)return{downloaded:0,failed:0};
+    const indexPath=mediaIndexPath(s),indexFile=this.app.vault.getAbstractFileByPath(indexPath);
+    if(indexFile&&!(indexFile instanceof TFile))throw new Error('Media index path is occupied by a folder.');
+    let index=indexFile instanceof TFile?await this.app.vault.read(indexFile):'',downloaded=0,failed=0,changed=false;
+    for(const m of rows.filter(m=>mediaEnabled(s,m)&&!m.chat.includes('broadcast')&&!m.chat.endsWith('@newsletter')&&(m.chat.endsWith('@g.us')?s.groups:s.personal))){
+      if(this.stopped)break;const key=mediaKey(s,m),note=notePath(s,m),kind=mediaKind(m);if(!kind)continue;
+      let path=findIndexedMedia(index,key),error='',status:MediaRecord['status']='downloaded';
+      try{
+        const existing=path?this.app.vault.getAbstractFileByPath(path):null;
+        if(!(existing instanceof TFile)){
+          const result=await this.sourceClient(s).downloadMedia(s,m,s.mediaMaxMB*1024*1024);path=deterministicMediaPath(s,m,result.extension);await this.folders(path);
+          const occupied=this.app.vault.getAbstractFileByPath(path);if(!occupied)await this.app.vault.createBinary(path,result.data);else if(!(occupied instanceof TFile))throw new Error('Media destination is occupied by a folder.');downloaded++;
+        }
+      }catch(e){failed++;status='download_failed';error=e instanceof Error?e.message:'Media processing failed.';}
+      const record:MediaRecord={key,kind,chat:m.chat,chatName:m.name,sender:m.fromMe?s.ownName:m.sender,timestamp:m.timestamp,note,path,name:m.mediaName??kind,status,error};
+      index=updateMediaIndex(index,record);changed=true;
+      if(path){const noteFile=this.app.vault.getAbstractFileByPath(note);if(noteFile instanceof TFile)await this.app.vault.process(noteFile,content=>mergeMediaIntoNote(content,s,m,path));}
+    }
+    if(changed){await this.folders(indexPath);if(indexFile instanceof TFile)await this.app.vault.process(indexFile,()=>index);else await this.app.vault.create(indexPath,index);}
+    return{downloaded,failed};
+  }
+  async backfillLegacyMedia(){
+    if(this.busy){new Notice(this.text('An operation is already running.','Já existe uma operação em andamento.'));return;}
+    this.busy=true;this.stopped=false;const s={...this.settings,legacyChats:{...this.settings.legacyChats}};
+    try{
+      validate(s);if(s.storageFormat!=='local-sync')throw new Error(this.text('Adopt WhatsApp Local Sync storage first.','Adote primeiro o armazenamento do WhatsApp Local Sync.'));
+      if(!s.downloadAudio&&!s.downloadImages&&!s.downloadVideos&&!s.downloadDocuments&&!s.downloadStickers)throw new Error(this.text('Enable at least one media type first.','Ative primeiro pelo menos um tipo de mídia.'));
+      this.status.setText(this.text('WA Bridge · finding past media','WA Bridge · procurando mídias antigas'));
+      const all=await this.localClient.readHistoricalMedia(s),selected=all.filter(m=>m.mediaType==='audio'?s.downloadAudio:mediaEnabled(s,m));
+      const audio=await this.processAudios(selected,s),media=await this.processMedia(selected,s);
+      this.lastResult=this.text(`Past media scan: ${audio.downloaded+media.downloaded} downloaded, ${audio.transcribed} audio transcribed, ${audio.failed+media.failed} failed.`,`Varredura histórica: ${audio.downloaded+media.downloaded} baixado(s), ${audio.transcribed} áudio(s) transcrito(s), ${audio.failed+media.failed} falha(s).`);
+    }catch(error){this.lastResult=error instanceof Error?error.message:'Media backfill failed.';}
+    finally{this.busy=false;this.status.setText('WA Bridge · '+this.lastResult);if(!this.unloaded)new Notice(this.lastResult,12000);}
+  }
   async run(test: boolean) {
     if(this.installing) { new Notice(this.text('Wait for the wacli installation to finish.','Aguarde a instalação do wacli.'));return; }
     if(this.busy) { new Notice(this.text('An operation is already running.','Já existe uma operação em andamento.')); return; }
@@ -197,8 +263,9 @@ export default class WhatsAppBridge extends Plugin {
     let added=0,files=0;
     try {
       validate(s); this.status.setText(this.text('WA Bridge · reading','WA Bridge · lendo'));
-      const after=new Date(Date.now()-s.days*86400000).toISOString();
-      const rows=await this.client.read(s,after,test?1:undefined);
+      const legacyDate=s.storageFormat==='local-sync'&&Number.isFinite(Date.parse(s.legacyLastSync))?Date.parse(s.legacyLastSync)-86400000:NaN;
+      const after=new Date(Number.isFinite(legacyDate)?legacyDate:Date.now()-s.days*86400000).toISOString();
+      const rows=await this.sourceClient(s).read(s,after,test?1:undefined);
       if(this.stopped) throw new Error('Operação cancelada.');
       if(test) {
         this.lastResult=rows.length ? this.text('Local read OK. Messages exist in the selected window. This does not verify that the collector is online.','Leitura local OK. Há mensagens na janela. Isso não verifica se o coletor está online.') : this.text('Local read OK; no messages in the selected window. Check the collector and history range.','Leitura local OK; nenhuma mensagem na janela. Confira o coletor e o histórico.');
@@ -207,6 +274,7 @@ export default class WhatsAppBridge extends Plugin {
         for(const m of rows) {
           if(m.chat.includes('broadcast') || m.chat.endsWith('@newsletter'))continue;
           if(m.chat.endsWith('@g.us') ? !s.groups : !s.personal)continue;
+          if(s.storageFormat==='local-sync'&&(!m.hasText||(m.localRowPk??0)<=(s.legacyChats[m.chat]?.lastRowPk??0)))continue;
           const path=notePath(s,m); const group=groups.get(path)??[]; group.push(m); groups.set(path,group);
         }
         for(const [path,messages] of groups) {
@@ -215,18 +283,26 @@ export default class WhatsAppBridge extends Plugin {
           const existing=this.app.vault.getAbstractFileByPath(path);
           let count=0;
           if(existing instanceof TFile) {
-            await this.app.vault.process(existing,content=>{const r=mergeNote(content,messages,s);count=r.added;return r.content;});
+            await this.app.vault.process(existing,content=>{if(s.storageFormat==='local-sync'){const r=mergeLegacyNote(content,messages,s);count=r.added;s.legacyChats[messages[0].chat]=r.state;return r.content;}const r=mergeNote(content,messages,s);count=r.added;return r.content;});
           } else if(existing) throw new Error('Destino ocupado por uma pasta.');
           else {
-            const r=mergeNote('',messages,s);
-            await this.app.vault.create(path,r.content);count=r.added;
+            if(s.storageFormat==='local-sync'){const r=mergeLegacyNote('',messages,s);await this.app.vault.create(path,r.content);count=r.added;s.legacyChats[messages[0].chat]=r.state;}
+            else{const r=mergeNote('',messages,s);await this.app.vault.create(path,r.content);count=r.added;}
           }
           added+=count; if(count)files++;
+          if(s.storageFormat==='local-sync'&&count){this.settings.legacyChats=s.legacyChats;await this.save();}
           this.status.setText(`WA Bridge · ${added} novas`);
         }
         const audio=await this.processAudios(rows,s);
+        const media=await this.processMedia(rows,s);
+        if(s.storageFormat==='local-sync'){
+          const indexPath=legacyIndexPath(s);await this.folders(indexPath);const index=this.app.vault.getAbstractFileByPath(indexPath),content=legacyIndex(s);
+          if(index instanceof TFile)await this.app.vault.process(index,()=>content);else if(!index)await this.app.vault.create(indexPath,content);
+          s.legacyLastSync=new Date().toISOString();this.settings.legacyChats=s.legacyChats;this.settings.legacyLastSync=s.legacyLastSync;await this.save();
+        }
         const audioSummary=s.downloadAudio?this.text(` Audio: ${audio.downloaded} downloaded, ${audio.transcribed} transcribed, ${audio.failed} failed.`,` Áudio: ${audio.downloaded} baixado(s), ${audio.transcribed} transcrito(s), ${audio.failed} falha(s).`):'';
-        this.lastResult=this.text(`${added} message(s) added to ${files} note(s).${audioSummary} ${new Date().toLocaleString()}`,`${added} mensagem(ns) adicionada(s) em ${files} nota(s).${audioSummary} ${new Date().toLocaleString()}`);
+        const mediaSummary=(s.downloadImages||s.downloadVideos||s.downloadDocuments||s.downloadStickers)?this.text(` Media: ${media.downloaded} downloaded, ${media.failed} failed.`,` Mídia: ${media.downloaded} baixada(s), ${media.failed} falha(s).`):'';
+        this.lastResult=this.text(`${added} message(s) added to ${files} note(s).${audioSummary}${mediaSummary} ${new Date().toLocaleString()}`,`${added} mensagem(ns) adicionada(s) em ${files} nota(s).${audioSummary}${mediaSummary} ${new Date().toLocaleString()}`);
       }
       this.status.setText('WA Bridge · OK');
       new Notice(this.lastResult,8000);

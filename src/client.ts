@@ -4,7 +4,7 @@ import {homedir} from 'os';
 import {existsSync,promises as fs} from 'fs';
 import {tmpdir} from 'os';
 import {extname} from 'path';
-import {Settings, parseMessages} from './core';
+import {Settings, parseMessages,Message} from './core';
 
 export const LIMIT = 10000;
 export const COMPATIBLE_WACLI_VERSION='0.19.0';
@@ -58,22 +58,24 @@ export class WacliClient {
       });
     });
   }
-  async downloadAudio(s:Settings,chat:string,id:string,maxBytes:number):Promise<{data:ArrayBuffer;extension:string}>{
-    const bin=executable(s),store=storePath(s);const dir=await fs.mkdtemp(join(tmpdir(),'whatsapp-bridge-audio-'));
+  async downloadMedia(s:Settings,message:Message,maxBytes:number):Promise<{data:ArrayBuffer;extension:string}>{
+    const chat=message.chat,id=message.id;
+    const bin=executable(s),store=storePath(s);const dir=await fs.mkdtemp(join(tmpdir(),'whatsapp-bridge-media-'));
     try{
       await new Promise<void>((resolve,reject)=>{
         this.child=execFile(bin,mediaArguments(store,chat,id,dir),{shell:false,windowsHide:true,timeout:120000,maxBuffer:1024*1024,env:{...process.env,WACLI_READONLY:'1'}},error=>{
-          this.child=null;error?reject(new Error('Could not download this audio from WhatsApp.')):resolve();
+          this.child=null;error?reject(new Error('Could not download this media file from WhatsApp.')):resolve();
         });
       });
       const entries=await fs.readdir(dir,{withFileTypes:true});
-      if(entries.length!==1||!entries[0].isFile()||entries[0].isSymbolicLink())throw new Error('wacli returned an unexpected audio package.');
+      if(entries.length!==1||!entries[0].isFile()||entries[0].isSymbolicLink())throw new Error('wacli returned an unexpected media package.');
       const file=join(dir,entries[0].name),stat=await fs.stat(file);
-      if(stat.size<1||stat.size>maxBytes)throw new Error('Audio exceeds the configured size limit.');
+      if(stat.size<1||stat.size>maxBytes)throw new Error('Media exceeds the configured size limit.');
       const bytes=await fs.readFile(file);const view=bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength);
       return{data:view,extension:extname(entries[0].name)||'.bin'};
     }finally{await fs.rm(dir,{recursive:true,force:true}).catch(()=>{});}
   }
+  async downloadAudio(s:Settings,message:Message,maxBytes:number){return this.downloadMedia(s,message,maxBytes);}
   async read(s: Settings, after: string, limit=LIMIT) {
     const bin = executable(s), store = storePath(s);
     const output = await new Promise<string>((resolve,reject)=> {

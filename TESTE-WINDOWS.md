@@ -1,14 +1,14 @@
-# WhatsApp Bridge 0.5.1 — teste no Windows
+# WhatsApp Bridge 0.9.0 — teste no Windows
 
 Requer Obsidian 1.13.1 ou superior. Use um vault de teste e áudios sem dados privados. O pacote foi compilado e testado com simulações no Mac; a execução real do Faster-Whisper-XXL e a interface de seleção precisam ser validadas no Windows.
 
 ## Atualizar sem perder configurações
 
 1. Desative o plugin no Obsidian.
-2. Extraia `whatsapp-bridge-0.5.1.zip`.
+2. Extraia `whatsapp-bridge-0.9.0.zip`.
 3. Copie apenas `main.js`, `manifest.json` e `styles.css` da pasta `whatsapp-bridge` para `<vault>/.obsidian/plugins/whatsapp-bridge/`.
 4. Preserve `data.json`, as notas, áudios, índice e credenciais. Reative o plugin.
-5. Confirme a versão 0.5.1 e que suas pastas e configurações anteriores foram mantidas. OpenAI continua sendo o provedor padrão.
+5. Confirme a versão 0.9.0 e que suas pastas e configurações anteriores foram mantidas. As novas categorias de mídia devem permanecer desativadas. OpenAI continua sendo o provedor padrão. A fonte permanece em wacli; acesso direto e adoção do WhatsApp Local Sync são exclusivos do macOS. Windows continua com Faster-Whisper-XXL.
 
 Nesta correção, teste primeiro **Procurar** e arrastar o executável nas janelas de wacli e Whisper. O caminho completo deve aparecer no campo antes de clicar em **Validar e usar executável**. Se ainda falhar, informe a versão do instalador Electron em Ajuda → Sobre e o erro do console ao reproduzir, removendo dados privados.
 

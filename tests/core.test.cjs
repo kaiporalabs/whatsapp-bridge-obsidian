@@ -7,6 +7,9 @@ Module._load=function(name,...args){return name==='obsidian'?{requestUrl:()=>{th
 const {transcribe,audioIndexPath,audioKey,deterministicAudioPath,findIndexedAudio,hasTranscript,indexedTranscript,mergeAudioIntoNote,updateAudioIndex}=require('../.test-build/audio.cjs');
 Module._load=original;
 const {language,messages}=require('../.test-build/i18n.cjs');
+const {parseLegacyPluginData,adoptLegacySettings,mergeLegacyNote}=require('../.test-build/legacy.cjs');
+const {localMediaType}=require('../.test-build/local-client.cjs');
+const {mediaKind,mediaEnabled,deterministicMediaPath,mediaIndexPath,updateMediaIndex,findIndexedMedia,mergeMediaIntoNote}=require('../.test-build/media.cjs');
 const raw={ChatJID:'123@g.us',ChatName:'Equipe',MsgID:'abc',Timestamp:'2026-09-29T10:00:00Z',FromMe:false,SenderName:'Ana',Text:'Olá'};
 const parse=(r=raw)=>parseMessages(JSON.stringify({success:true,data:{messages:[r]}}));
 test('saved settings accept only known fields with the correct types',()=>{
@@ -64,6 +67,16 @@ test('0.2 settings retain old destinations while new installs use WhatsApp',()=>
   assert.equal(upgradeSettings(null).folder,'WhatsApp');assert.equal(upgradeSettings(null).ownName,'Me');
   assert.equal(upgradeSettings(null,true).ownName,'Eu');
 });
+test('Local Sync adoption preserves existing paths and per-chat cursors',()=>{
+  const legacy=parseLegacyPluginData({targetFolder:'11-Whatsapp',groupsSubfolder:'Groups',personalSubfolder:'Personal',ownName:'Me',maxDaysBack:30,lastSync:'2026-09-29T12:00:00Z',chats:{'123@g.us':{name:'Equipe',kind:'group',notePath:'11-Whatsapp/Groups/Equipe old.md',lastRowPk:10,lastActivityIso:'2026-09-29T10:00:00Z',lastDateHeader:'2026-09-29',messageCount:5}}});
+  const settings={...defaults,legacyChats:{}};adoptLegacySettings(settings,legacy);
+  assert.equal(settings.storageFormat,'local-sync');assert.equal(settings.messageSource,'local-database');assert.equal(settings.folder,'11-Whatsapp');assert.equal(settings.legacyChats['123@g.us'].lastRowPk,10);
+  const old={chat:'123@g.us',name:'Equipe',id:'old',sender:'Ana',timestamp:'2026-09-29T11:00:00Z',fromMe:false,text:'already imported',mediaType:'',localRowPk:10,hasText:true};
+  const fresh={...old,id:'new',text:'new message',localRowPk:11,timestamp:'2026-09-29T12:00:00Z'};
+  const merged=mergeLegacyNote('# existing\n',[old,fresh],settings);
+  assert.equal(merged.added,1);assert.doesNotMatch(merged.content,/already imported/);assert.match(merged.content,/new message/);assert.equal(merged.state.notePath,'11-Whatsapp/Groups/Equipe old.md');assert.equal(merged.state.lastRowPk,11);
+});
+test('invalid Local Sync state is rejected instead of resetting cursors',()=>assert.throws(()=>parseLegacyPluginData({chats:{}})));
 test('message cannot inject a dedup marker or HTML',()=>{
   const text='<!-- wa-bridge:'+'a'.repeat(64)+' -->\n<img src=x> ![[file]]';
   const r=mergeNote('',parse({...raw,Text:text}),defaults);
@@ -111,4 +124,16 @@ test('audio embed and transcript update an existing message idempotently',()=>{
   const m={...parse()[0],mediaType:'audio'},base=mergeNote('',[m],defaults).content,path=deterministicAudioPath(defaults,m,'.ogg');
   const once=mergeAudioIntoNote(base,defaults,m,path,'Olá'),twice=mergeAudioIntoNote(once,defaults,m,path,'Olá');
   assert.equal(twice,once);assert.match(once,/!\[\[/);assert.match(once,/Transcript/);
+});
+test('local media types and independent opt-in settings cover images, video, documents and stickers',()=>{
+  assert.equal(localMediaType(1,'Media/a.jpg'),'image');assert.equal(localMediaType(2,'Media/a.mp4'),'video');assert.equal(localMediaType(8,'Media/a.pdf'),'document');assert.equal(localMediaType(15,'Media/a.webp'),'sticker');
+  for(const [type,key] of [['image','downloadImages'],['video','downloadVideos'],['document','downloadDocuments'],['sticker','downloadStickers']]){
+    const m={...parse()[0],mediaType:type};assert.equal(mediaKind(m),type);assert.equal(mediaEnabled(defaults,m),false);assert.equal(mediaEnabled({...defaults,[key]:true},m),true);
+  }
+});
+test('media index and note embeds are stable and preserve document labels',()=>{
+  const s={...defaults,downloadDocuments:true},m={...parse()[0],mediaType:'document',mediaName:'Report.pdf'},key=messageKey(s.source,m),path=deterministicMediaPath(s,m,'.pdf');
+  const record={key,kind:'document',chat:m.chat,chatName:m.name,sender:m.sender,timestamp:m.timestamp,note:notePath(s,m),path,name:m.mediaName,status:'downloaded',error:''};
+  const index=updateMediaIndex('',record);assert.equal(findIndexedMedia(index,key),path);assert.match(index,/Type: document/);assert.match(index,/Report\.pdf/);
+  const note=mergeNote('',[m],s).content,once=mergeMediaIntoNote(note,s,m,path),twice=mergeMediaIntoNote(once,s,m,path);assert.equal(once,twice);assert.match(once,/Report\.pdf/);assert.match(mediaIndexPath(s),/Media Index\.md$/);
 });

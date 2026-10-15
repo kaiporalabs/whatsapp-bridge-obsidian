@@ -1,8 +1,8 @@
 {
   "name": "obsidian-whatsapp-bridge",
-  "version": "0.5.1",
+  "version": "0.9.0",
   "private": true,
-  "description": "Import local wacli messages into Obsidian",
+  "description": "Import WhatsApp messages and media into Obsidian through wacli or the local macOS database",
   "license": "MIT",
   "scripts": {
     "build": "tsc --noEmit && node esbuild.config.mjs",

@@ -4,8 +4,8 @@ import {Message,Settings,escapeText,messageKey,folderPath} from './core';
 export interface AudioRecord{key:string;chat:string;chatName:string;sender:string;timestamp:string;note:string;path:string;status:'downloaded'|'transcribed'|'download_failed'|'transcription_failed';transcript:string;error:string;}
 const safe=(value:string)=>escapeText(value).replace(/\n/g,' ');
 export function isAudio(message:Message){return message.mediaType==='audio';}
-export function audioBase(s:Settings){return `${folderPath(s.folder)}/${s.source}/${folderPath(s.audioFolder)}`;}
-export function audioIndexPath(s:Settings){return `${folderPath(s.folder)}/${s.source}/Audio Index.md`;}
+export function audioBase(s:Settings){return s.storageFormat==='local-sync'?`${folderPath(s.folder)}/${folderPath(s.audioFolder)}`:`${folderPath(s.folder)}/${s.source}/${folderPath(s.audioFolder)}`;}
+export function audioIndexPath(s:Settings){return s.storageFormat==='local-sync'?`${folderPath(s.folder)}/Audio Index.md`:`${folderPath(s.folder)}/${s.source}/Audio Index.md`;}
 export function audioKey(s:Settings,m:Message){return messageKey(s.source,m);}
 export function deterministicAudioPath(s:Settings,m:Message,extension:string){
   const ext=/^\.[a-z0-9]{2,5}$/i.test(extension)?extension.toLowerCase():'.bin';
@@ -51,7 +51,17 @@ export function indexedRecords(content:string):AudioRecord[]{
   return records;
 }
 export function mergeAudioIntoNote(existing:string,s:Settings,m:Message,path:string,transcript:string):string{
+  if(s.storageFormat==='local-sync')return mergeLegacyAudioIntoNote(existing,s,m,path,transcript);
   return mergeAudioByKey(existing,audioKey(s,m),path,transcript);
+}
+export function mergeLegacyAudioIntoNote(existing:string,s:Settings,m:Message,path:string,transcript:string):string{
+  const key=audioKey(s,m);if(!/^[a-f0-9]{64}$/.test(key)||!path)return existing;
+  const transcriptBlock=transcript?`\n> [!quote] Transcript\n${escapeText(transcript).split('\n').map(line=>`> ${line}`).join('\n')}`:'';
+  const block=`<!-- wa-audio:${key}:start -->\n**${m.timestamp.replace('T',' ').replace('.000Z',' UTC')} — ${escapeText(m.fromMe?s.ownName:m.sender).replace(/\n/g,' ')}**\n\n![[${path}]]${transcriptBlock}\n<!-- wa-audio:${key}:end -->`;
+  const pattern=new RegExp(`<!-- wa-audio:${key}:start -->[\\s\\S]*?<!-- wa-audio:${key}:end -->`);
+  if(pattern.test(existing))return existing.replace(pattern,()=>block);
+  const heading='## Imported audio history';const prefix=existing.includes(heading)?'':`\n\n${heading}\n`;
+  return `${existing.trimEnd()}${prefix}\n\n${block}\n`;
 }
 export function mergeAudioByKey(existing:string,key:string,path:string,transcript:string):string{
   if(!/^[a-f0-9]{64}$/.test(key))throw new Error('Invalid audio key.');

@@ -1,9 +1,9 @@
 {
   "id": "whatsapp-bridge",
   "name": "WhatsApp Bridge",
-  "version": "0.5.1",
+  "version": "0.9.0",
   "minAppVersion": "1.13.1",
-  "description": "Import messages from your local wacli store into conversation notes.",
+  "description": "Import WhatsApp messages and media through wacli or the local macOS database.",
   "author": "Marcelo",
   "isDesktopOnly": true
 }
